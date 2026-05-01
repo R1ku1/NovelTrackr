@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "noveltrackr",
-        "width": 800,
-        "height": 600
+      "title": "noveltrackr",
+    "width": 1200,
+    "height": 800,
+    "maximized": true,
+    "backgroundColor": "#0f0f13"
       }
     ],
     "security": {

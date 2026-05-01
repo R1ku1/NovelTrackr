@@ -1,51 +1,763 @@
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+// ── Types ────────────────────────────────────────────────────────────────────
+type Status = "reading" | "paused" | "completed" | "dropped" | "planned";
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+interface Novel {
+  id: number;
+  canonical_title: string;
+  status: Status;
+  notes: string;
+  cover_url: string | null;
+  current_chapter_raw: string | null;
+  chapter_sort: number | null;
+  updated_at: string;
+  aliases: string[];
+}
 
+// ── Mock Data ────────────────────────────────────────────────────────────────
+const MOCK_NOVELS: Novel[] = [
+  {
+    id: 1,
+    canonical_title: "Shadow Slave",
+    status: "reading",
+    notes: "",
+    cover_url: null,
+    current_chapter_raw: "Chapter 221",
+    chapter_sort: 221,
+    updated_at: "2025-04-28T10:00:00Z",
+    aliases: ["SS"],
+  },
+  {
+    id: 2,
+    canonical_title: "The Beginning After The End",
+    status: "reading",
+    notes: "Getting good again after the time skip",
+    cover_url: null,
+    current_chapter_raw: "Chapter 450",
+    chapter_sort: 450,
+    updated_at: "2025-04-27T18:30:00Z",
+    aliases: ["TBATE"],
+  },
+  {
+    id: 3,
+    canonical_title: "Omniscient Reader's Viewpoint",
+    status: "completed",
+    notes: "",
+    cover_url: null,
+    current_chapter_raw: "Chapter 551",
+    chapter_sort: 551,
+    updated_at: "2025-04-20T09:00:00Z",
+    aliases: ["ORV"],
+  },
+  {
+    id: 4,
+    canonical_title: "Reverend Insanity",
+    status: "paused",
+    notes: "On hold until I finish TBATE",
+    cover_url: null,
+    current_chapter_raw: "Chapter 89",
+    chapter_sort: 89,
+    updated_at: "2025-03-15T14:00:00Z",
+    aliases: [],
+  },
+  {
+    id: 5,
+    canonical_title: "Dungeon Defense",
+    status: "planned",
+    notes: "",
+    cover_url: null,
+    current_chapter_raw: null,
+    chapter_sort: null,
+    updated_at: "2025-03-01T00:00:00Z",
+    aliases: [],
+  },
+  {
+    id: 6,
+    canonical_title: "Mother of Learning",
+    status: "dropped",
+    notes: "Not for me",
+    cover_url: null,
+    current_chapter_raw: "Chapter 12",
+    chapter_sort: 12,
+    updated_at: "2025-02-10T00:00:00Z",
+    aliases: ["MoL"],
+  },
+];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const STATUS_META: Record<Status, { label: string; color: string }> = {
+  reading:   { label: "Reading",   color: "#60a5fa" },
+  paused:    { label: "Paused",    color: "#facc15" },
+  completed: { label: "Completed", color: "#4ade80" },
+  dropped:   { label: "Dropped",   color: "#f87171" },
+  planned:   { label: "Planned",   color: "#a78bfa" },
+};
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const d = Math.floor(diff / 86400000);
+  if (d === 0) return "Today";
+  if (d === 1) return "Yesterday";
+  if (d < 30) return `${d}d ago`;
+  const m = Math.floor(d / 30);
+  if (m < 12) return `${m}mo ago`;
+  return `${Math.floor(m / 12)}y ago`;
+}
+
+type SortKey = "updated" | "title" | "chapter";
+type ViewMode = "list" | "grid";
+
+// ── Dynamic Style Helpers ────────────────────────────────────────────────────
+function getViewBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    background: active ? "#2a2a35" : "transparent",
+    border: "1px solid #2a2a35",
+    color: active ? "#e8e6e1" : "#666",
+    width: 32,
+    height: 32,
+    cursor: "pointer",
+    fontSize: 14,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+  };
+}
+
+function getTrStyle(hovered: boolean): React.CSSProperties {
+  return {
+    borderBottom: "1px solid #1a1a22",
+    background: hovered ? "#16161e" : "transparent",
+    cursor: "pointer",
+    transition: "background 0.1s",
+  };
+}
+
+function getStatusBadgeStyle(status: Status): React.CSSProperties {
+  return {
+    display: "inline-block",
+    fontSize: 11,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: STATUS_META[status].color,
+    border: `1px solid ${STATUS_META[status].color}40`,
+    padding: "2px 9px",
+    background: `${STATUS_META[status].color}0f`,
+    borderRadius: 20,
+  };
+}
+
+function getGridCardStyle(hovered: boolean): React.CSSProperties {
+  return {
+    background: hovered ? "#16161e" : "#141418",
+    border: "1px solid #222230",
+    padding: 14,
+    cursor: "pointer",
+    transition: "background 0.15s, border-color 0.15s",
+    borderColor: hovered ? "#2e2e3e" : "#222230",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    borderRadius: 12,
+  };
+}
+
+// ── Inline Styles ────────────────────────────────────────────────────────────
+const styles: Record<string, React.CSSProperties> = {
+  app: {
+    height: "100vh",
+    background: "#0f0f13",
+    color: "#e8e6e1",
+    fontFamily: "'Georgia', 'Times New Roman', serif",
+    display: "flex",
+    flexDirection: "column",
+  },
+  header: {
+    borderBottom: "1px solid #2a2a35",
+    padding: "18px 28px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    background: "#0f0f13",
+    position: "sticky",
+    top: 0,
+    zIndex: 10,
+  },
+  logo: {
+    fontSize: 20,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    fontStyle: "italic",
+    color: "#e8e6e1",
+    opacity: 0.92,
+  },
+  headerRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  },
+  addBtn: {
+    background: "#e8e6e1",
+    color: "#0f0f13",
+    border: "none",
+    padding: "8px 18px",
+    fontSize: 13,
+    fontFamily: "inherit",
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    cursor: "pointer",
+    borderRadius: 20,
+  },
+  toolbar: {
+    padding: "14px 28px",
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 10,
+    flexWrap: "wrap",
+    borderBottom: "1px solid #1e1e28",
+  },
+  searchWrap: {
+    flex: 1,
+    minWidth: 180,
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  searchInput: {
+    width: "100%",
+    background: "#1a1a22",
+    border: "1px solid #2a2a35",
+    color: "#e8e6e1",
+    padding: "8px 10px 8px 34px",
+    fontSize: 14,
+    fontFamily: "inherit",
+    outline: "none",
+    boxSizing: "border-box",
+    borderRadius: 8,
+  },
+  searchIcon: {
+    position: "absolute",
+    left: 10,
+    bottom: 10,
+    opacity: 0.35,
+    pointerEvents: "none",
+    fontSize: 14,
+  },
+  selectWrap: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  selectLabel: {
+    fontSize: 9,
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+    color: "#444",
+    paddingLeft: 2,
+  },
+  select: {
+    background: "#1a1a22",
+    border: "1px solid #2a2a35",
+    color: "#e8e6e1",
+    padding: "8px 10px",
+    fontSize: 13,
+    fontFamily: "inherit",
+    outline: "none",
+    cursor: "pointer",
+    letterSpacing: "0.03em",
+    borderRadius: 8,
+  },
+  viewToggle: {
+    display: "flex",
+    gap: 4,
+  },
+  countBar: {
+    padding: "10px 28px",
+    fontSize: 12,
+    letterSpacing: "0.1em",
+    color: "#555",
+    textTransform: "uppercase",
+    borderBottom: "1px solid #1a1a22",
+  },
+  main: {
+    padding: "20px 28px",
+    flex: 1,
+    overflowY: "auto",
+    overflowX: "hidden"
+  },
+
+  // ── List View ──
+  listTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+  },
+  th: {
+    textAlign: "left",
+    fontSize: 11,
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+    color: "#444",
+    padding: "0 12px 12px 0",
+    fontWeight: 400,
+    borderBottom: "1px solid #1e1e28",
+  },
+  td: {
+    padding: "13px 12px 13px 0",
+    fontSize: 14,
+    verticalAlign: "middle",
+  },
+  titleCell: {
+    fontWeight: 600,
+    color: "#e8e6e1",
+    maxWidth: 300,
+  },
+  aliasTag: {
+    display: "inline-block",
+    fontSize: 10,
+    letterSpacing: "0.08em",
+    color: "#555",
+    background: "#1a1a22",
+    border: "1px solid #252530",
+    padding: "1px 6px",
+    marginLeft: 8,
+    borderRadius: 4,
+  },
+  chapterCell: {
+    color: "#999",
+    fontSize: 13,
+    fontFamily: "inherit",
+    whiteSpace: "nowrap",
+  },
+  dateCell: {
+    color: "#444",
+    fontSize: 12,
+    letterSpacing: "0.05em",
+    whiteSpace: "nowrap",
+  },
+
+  // ── Grid View ──
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+    gap: 12,
+  },
+  gridCover: {
+    width: "100%",
+    aspectRatio: "2/3",
+    background: "#1a1a22",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+    fontSize: 11,
+    color: "#333",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    border: "1px solid #1e1e28",
+    borderRadius: 6,
+  },
+  gridTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#ddd",
+    lineHeight: 1.3,
+    letterSpacing: "0.02em",
+  },
+  gridMeta: {
+    fontSize: 12,
+    color: "#555",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: "auto",
+  },
+
+  // ── Quick Update Modal ──
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.75)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 100,
+  },
+  modal: {
+    background: "#16161e",
+    border: "1px solid #2a2a35",
+    padding: 26,
+    width: 340,
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    borderRadius: 14,
+  },
+  modalTitle: {
+    fontSize: 11,
+    letterSpacing: "0.15em",
+    textTransform: "uppercase",
+    color: "#555",
+  },
+  modalNovel: {
+    fontSize: 17,
+    fontWeight: 700,
+    color: "#e8e6e1",
+    lineHeight: 1.2,
+    marginTop: 2,
+  },
+  modalCurrent: {
+    fontSize: 12,
+    color: "#555",
+    letterSpacing: "0.04em",
+    marginTop: 4,
+  },
+  modalInput: {
+    background: "#0f0f13",
+    border: "1px solid #2a2a35",
+    color: "#e8e6e1",
+    padding: "10px 12px",
+    fontSize: 14,
+    fontFamily: "inherit",
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
+    borderRadius: 8,
+  },
+  modalActions: {
+    display: "flex",
+    gap: 8,
+    justifyContent: "flex-end",
+  },
+  modalConfirm: {
+    background: "#e8e6e1",
+    color: "#0f0f13",
+    border: "none",
+    padding: "8px 20px",
+    fontSize: 12,
+    fontFamily: "inherit",
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    cursor: "pointer",
+    borderRadius: 20,
+  },
+  modalCancel: {
+    background: "transparent",
+    color: "#555",
+    border: "1px solid #2a2a35",
+    padding: "8px 20px",
+    fontSize: 12,
+    fontFamily: "inherit",
+    letterSpacing: "0.06em",
+    cursor: "pointer",
+    borderRadius: 20,
+  },
+  emptyState: {
+    textAlign: "center",
+    padding: "60px 0",
+    color: "#444",
+    fontSize: 14,
+    letterSpacing: "0.06em",
+  },
+};
+
+// ── Update Button ─────────────────────────────────────────────────────────────
+function UpdateButton({ onClick }: { onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <button
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      style={{
+        background: hovered ? "#60a5fa18" : "#1a1a22",
+        border: `1px solid ${hovered ? "#60a5fa55" : "#2a2a35"}`,
+        color: hovered ? "#60a5fa" : "#666",
+        fontSize: 11,
+        padding: "4px 10px",
+        cursor: "pointer",
+        fontFamily: "inherit",
+        letterSpacing: "0.06em",
+        borderRadius: 6,
+        transition: "all 0.15s",
+        whiteSpace: "nowrap",
+      }}
+    >
+      + Update
+    </button>
   );
 }
 
-export default App;
+// ── Quick Update Modal ────────────────────────────────────────────────────────
+function QuickUpdateModal({
+  novel,
+  onConfirm,
+  onClose,
+}: {
+  novel: Novel;
+  onConfirm: (id: number, chapter: string) => void;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(novel.current_chapter_raw ?? "");
+
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div>
+          <div style={styles.modalTitle}>Update Progress</div>
+          <div style={styles.modalNovel}>{novel.canonical_title}</div>
+          {novel.current_chapter_raw && (
+            <div style={styles.modalCurrent}>
+              Currently at {novel.current_chapter_raw}
+            </div>
+          )}
+        </div>
+        <input
+          style={styles.modalInput}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="e.g. Chapter 222"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onConfirm(novel.id, value);
+            if (e.key === "Escape") onClose();
+          }}
+        />
+        <div style={styles.modalActions}>
+          <button style={styles.modalCancel} onClick={onClose}>Cancel</button>
+          <button style={styles.modalConfirm} onClick={() => onConfirm(novel.id, value)}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── List Row ──────────────────────────────────────────────────────────────────
+function ListRow({
+  novel,
+  onQuickUpdate,
+}: {
+  novel: Novel;
+  onQuickUpdate: (novel: Novel) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <tr
+      style={getTrStyle(hovered)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <td style={{ ...styles.td, ...styles.titleCell }}>
+        {novel.canonical_title}
+        {novel.aliases.length > 0 && (
+          <span style={styles.aliasTag}>{novel.aliases[0]}</span>
+        )}
+      </td>
+      <td style={styles.td}>
+        <span style={getStatusBadgeStyle(novel.status)}>
+          {STATUS_META[novel.status].label}
+        </span>
+      </td>
+      <td style={{ ...styles.td, ...styles.chapterCell }}>
+        {novel.current_chapter_raw ?? <span style={{ color: "#333" }}>—</span>}
+      </td>
+      <td style={{ ...styles.td, ...styles.dateCell }}>
+        {timeAgo(novel.updated_at)}
+      </td>
+      <td style={styles.td}>
+        <UpdateButton onClick={() => onQuickUpdate(novel)} />
+      </td>
+    </tr>
+  );
+}
+
+// ── Grid Card ─────────────────────────────────────────────────────────────────
+function GridCard({
+  novel,
+  onQuickUpdate,
+}: {
+  novel: Novel;
+  onQuickUpdate: (novel: Novel) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <div
+      style={getGridCardStyle(hovered)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div style={styles.gridCover}>No Cover</div>
+      <div style={styles.gridTitle}>{novel.canonical_title}</div>
+      <span style={getStatusBadgeStyle(novel.status)}>
+        {STATUS_META[novel.status].label}
+      </span>
+      <div style={styles.gridMeta}>
+        <span style={{ color: "#666", fontSize: 12 }}>
+          {novel.current_chapter_raw ?? "Not started"}
+        </span>
+        <UpdateButton onClick={() => onQuickUpdate(novel)} />
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+export default function App() {
+  const [novels, setNovels] = useState<Novel[]>(MOCK_NOVELS);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
+  const [sortKey, setSortKey] = useState<SortKey>("updated");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [quickUpdateTarget, setQuickUpdateTarget] = useState<Novel | null>(null);
+
+  const filtered = novels
+    .filter((n) => {
+      if (statusFilter !== "all" && n.status !== statusFilter) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        return (
+          n.canonical_title.toLowerCase().includes(q) ||
+          n.aliases.some((a) => a.toLowerCase().includes(q))
+        );
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortKey === "updated")
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      if (sortKey === "title")
+        return a.canonical_title.localeCompare(b.canonical_title);
+      if (sortKey === "chapter")
+        return (b.chapter_sort ?? -1) - (a.chapter_sort ?? -1);
+      return 0;
+    });
+
+  function handleQuickUpdate(id: number, chapterRaw: string) {
+    // Later: invoke('update_progress', { novelId: id, chapterRaw })
+    setNovels((prev) =>
+      prev.map((n) =>
+        n.id === id
+          ? {
+              ...n,
+              current_chapter_raw: chapterRaw,
+              chapter_sort: parseChapterSort(chapterRaw),
+              updated_at: new Date().toISOString(),
+            }
+          : n
+      )
+    );
+    setQuickUpdateTarget(null);
+  }
+
+  return (
+    <div style={styles.app}>
+      <header style={styles.header}>
+        <span style={styles.logo}>Noveltrackr</span>
+        <div style={styles.headerRight}>
+          <button style={styles.addBtn}>+ Add Novel</button>
+        </div>
+      </header>
+
+      <div style={styles.toolbar}>
+        <div style={styles.searchWrap}>
+          <span style={styles.searchIcon}>⌕</span>
+          <input
+            style={styles.searchInput}
+            placeholder="Search titles, aliases..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div style={styles.selectWrap}>
+          <span style={styles.selectLabel}>Filter</span>
+          <select
+            style={styles.select}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as Status | "all")}
+          >
+            <option value="all">All Status</option>
+            {(Object.keys(STATUS_META) as Status[]).map((s) => (
+              <option key={s} value={s}>{STATUS_META[s].label}</option>
+            ))}
+          </select>
+        </div>
+        <div style={styles.selectWrap}>
+          <span style={styles.selectLabel}>Sort</span>
+          <select
+            style={styles.select}
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+          >
+            <option value="updated">Last Updated</option>
+            <option value="title">Title A–Z</option>
+            <option value="chapter">Chapter</option>
+          </select>
+        </div>
+        <div style={styles.viewToggle}>
+          <button style={getViewBtnStyle(viewMode === "list")} onClick={() => setViewMode("list")}>☰</button>
+          <button style={getViewBtnStyle(viewMode === "grid")} onClick={() => setViewMode("grid")}>⊞</button>
+        </div>
+      </div>
+
+      <div style={styles.countBar}>
+        {filtered.length} {filtered.length === 1 ? "novel" : "novels"}
+        {statusFilter !== "all" && ` · ${STATUS_META[statusFilter].label}`}
+        {search && ` · "${search}"`}
+      </div>
+
+      <main style={styles.main}>
+        {filtered.length === 0 ? (
+          <div style={styles.emptyState}>No novels found.</div>
+        ) : viewMode === "list" ? (
+          <table style={styles.listTable}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Title</th>
+                <th style={styles.th}>Status</th>
+                <th style={styles.th}>Chapter</th>
+                <th style={styles.th}>Updated</th>
+                <th style={styles.th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((n) => (
+                <ListRow key={n.id} novel={n} onQuickUpdate={setQuickUpdateTarget} />
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div style={styles.grid}>
+            {filtered.map((n) => (
+              <GridCard key={n.id} novel={n} onQuickUpdate={setQuickUpdateTarget} />
+            ))}
+          </div>
+        )}
+      </main>
+
+      {quickUpdateTarget && (
+        <QuickUpdateModal
+          novel={quickUpdateTarget}
+          onConfirm={handleQuickUpdate}
+          onClose={() => setQuickUpdateTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Chapter Sort Extraction ───────────────────────────────────────────────────
+function parseChapterSort(raw: string): number | null {
+  const chapterMatch = raw.match(/chapter\s*(\d+\.?\d*)/i);
+  if (chapterMatch) return parseFloat(chapterMatch[1]);
+  const episodeMatch = raw.match(/episode\s*(\d+)/i);
+  if (episodeMatch) return parseFloat(episodeMatch[1]);
+  const bareMatch = raw.match(/^\s*(\d+\.?\d*)\s*$/);
+  if (bareMatch) return parseFloat(bareMatch[1]);
+  return null;
+}
