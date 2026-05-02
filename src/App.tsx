@@ -18,6 +18,7 @@ interface Novel {
   chapter_sort: number | null;
   updated_at: string;
   aliases: string[];
+  last_seen_url: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -29,19 +30,9 @@ const STATUS_META: Record<Status, { label: string; color: string }> = {
   planned:   { label: "Planned",   color: "#a78bfa" },
 };
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const d = Math.floor(diff / 86400000);
-  if (d === 0) return "Today";
-  if (d === 1) return "Yesterday";
-  if (d < 30) return `${d}d ago`;
-  const m = Math.floor(d / 30);
-  if (m < 12) return `${m}mo ago`;
-  return `${Math.floor(m / 12)}y ago`;
-}
 
 type SortKey = "updated" | "title" | "chapter";
-type ViewMode = "list" | "grid";
+type ViewMode = "list" | "grid" | "compact";
 
 // ── Dynamic Style Helpers ────────────────────────────────────────────────────
 function getViewBtnStyle(active: boolean): React.CSSProperties {
@@ -145,6 +136,20 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     borderRadius: 20,
   },
+  searchClear: {
+    position: "absolute",
+    right: 10,
+    bottom: 9,
+    background: "none",
+    border: "none",
+    color: "#555",
+    cursor: "pointer",
+    fontSize: 14,
+    padding: 0,
+    lineHeight: 1,
+    display: "flex",
+    alignItems: "center",
+  },
   toolbar: {
     padding: "14px 28px",
     display: "flex",
@@ -224,6 +229,18 @@ const styles: Record<string, React.CSSProperties> = {
     overflowX: "hidden"
   },
 
+  sourceCell: {
+    fontSize: 12,
+    whiteSpace: "nowrap" as const,
+  },
+  sourceLink: {
+    color: "#4a6fa5",
+    textDecoration: "none",
+    fontSize: 12,
+    fontStyle: "italic",
+    cursor: "pointer",
+  },
+
   // ── List View ──
   listTable: {
     width: "100%",
@@ -231,23 +248,23 @@ const styles: Record<string, React.CSSProperties> = {
   },
   th: {
     textAlign: "left",
-    fontSize: 11,
+    fontSize: 12,
     letterSpacing: "0.12em",
     textTransform: "uppercase",
     color: "#444",
-    padding: "0 12px 12px 0",
+    padding: "0 12px 14px 0",
     fontWeight: 400,
     borderBottom: "1px solid #1e1e28",
   },
   td: {
-    padding: "13px 12px 13px 0",
-    fontSize: 14,
+    padding: "15px 12px 15px 0",
+    fontSize: 15,
     verticalAlign: "middle",
   },
   titleCell: {
     fontWeight: 600,
     color: "#e8e6e1",
-    maxWidth: 300,
+    maxWidth: 320,
   },
   aliasTag: {
     display: "inline-block",
@@ -262,7 +279,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   chapterCell: {
     color: "#999",
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: "inherit",
     whiteSpace: "nowrap",
   },
@@ -308,6 +325,29 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: "auto",
+  },
+  compactGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+    gap: 6,
+  },
+  compactCard: {
+    background: "#141418",
+    border: "1px solid #1e1e28",
+    padding: "8px 10px",
+    borderRadius: 8,
+    cursor: "pointer",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 4,
+  },
+  compactTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#ccc",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
   },
 
   // ── Quick Update Modal ──
@@ -504,8 +544,22 @@ function ListRow({
       <td style={{ ...styles.td, ...styles.chapterCell }}>
         {novel.current_chapter_raw ?? <span style={{ color: "#333" }}>—</span>}
       </td>
-      <td style={{ ...styles.td, ...styles.dateCell }}>
-        {timeAgo(novel.updated_at)}
+      <td style={{ ...styles.td, ...styles.sourceCell }}>
+        {novel.last_seen_url ? (
+            <a
+            href="#"
+            style={styles.sourceLink}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              window.open(novel.last_seen_url!, "_blank");
+            }}
+          >
+            {new URL(novel.last_seen_url).hostname.replace("www.", "")}
+          </a>
+        ) : (
+          <span style={{ color: "#333" }}>—</span>
+        )}
       </td>
       <td style={styles.td}>
         <UpdateButton onClick={() => onQuickUpdate(novel)} />
@@ -563,8 +617,8 @@ export default function App() {
   const filtered = novels
     .filter((n) => {
       if (statusFilter !== "all" && n.status !== statusFilter) return false;
-      if (search.trim()) {
-        const q = search.toLowerCase();
+      const q = search.trim().toLowerCase();
+      if (q) {
         return (
           n.canonical_title.toLowerCase().includes(q) ||
           n.aliases.some((a) => a.toLowerCase().includes(q))
@@ -644,11 +698,22 @@ export default function App() {
         <div style={styles.searchWrap}>
           <span style={styles.searchIcon}>⌕</span>
           <input
-            style={styles.searchInput}
+            style={{
+              ...styles.searchInput,
+              paddingRight: search ? 32 : 10,  // make room for clear btn
+            }}
             placeholder="Search titles, aliases..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {search && (
+            <button
+              style={styles.searchClear}
+              onClick={() => setSearch("")}
+            >
+              ×
+            </button>
+          )}
         </div>
         <div style={styles.selectWrap}>
           <span style={styles.selectLabel}>Filter</span>
@@ -678,6 +743,8 @@ export default function App() {
         <div style={styles.viewToggle}>
           <button style={getViewBtnStyle(viewMode === "list")} onClick={() => setViewMode("list")}>☰</button>
           <button style={getViewBtnStyle(viewMode === "grid")} onClick={() => setViewMode("grid")}>⊞</button>
+          <button style={getViewBtnStyle(viewMode === "compact")} onClick={() => setViewMode("compact")}>▤</button>
+          
         </div>
       </div>
 
@@ -697,7 +764,7 @@ export default function App() {
                 <th style={styles.th}>Title</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Chapter</th>
-                <th style={styles.th}>Updated</th>
+                <th style={styles.th}>Source</th>
                 <th style={styles.th}></th>
               </tr>
             </thead>
@@ -716,6 +783,25 @@ export default function App() {
               ))}
             </tbody>
           </table>
+        ) : viewMode === "compact" ? (
+          <div style={styles.compactGrid}>
+          {filtered.map((n) => (
+            <div
+              key={n.id}
+              style={styles.compactCard}
+              onClick={() => setEditTarget({
+                ...n,
+                current_chapter_raw: n.current_chapter_raw ?? "",
+                cover_url: n.cover_url ?? "",
+              })}
+            >
+              <div style={styles.compactTitle}>{n.canonical_title}</div>
+              <span style={{ ...getStatusBadgeStyle(n.status), fontSize: 9, padding: "1px 6px" }}>
+                {STATUS_META[n.status].label}
+              </span>
+            </div>
+          ))}
+        </div>
         ) : (
           <div style={styles.grid}>
             {filtered.map((n) => (

@@ -13,6 +13,7 @@ export interface NovelRow {
   chapter_sort: number | null;
   updated_at: string;
   aliases: string[];
+  last_seen_url: string | null;
 }
 
 // ── Fetch all novels with their current progress and aliases ──────────────────
@@ -24,7 +25,10 @@ export async function getAllNovels(): Promise<NovelRow[]> {
       n.id, n.canonical_title, n.status, n.notes, n.cover_url,
       p.chapter_raw as current_chapter_raw,
       p.chapter_sort,
-      COALESCE(p.updated_at, n.updated_at) as updated_at
+      COALESCE(p.updated_at, n.updated_at) as updated_at,
+      (SELECT last_seen_url FROM sources 
+      WHERE novel_id = n.id AND is_preferred = 1 
+      LIMIT 1) as last_seen_url
     FROM novels n
     LEFT JOIN progress p ON p.novel_id = n.id
     ORDER BY COALESCE(p.updated_at, n.updated_at) DESC
