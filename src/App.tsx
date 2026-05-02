@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import AddNovelPanel, { type NewNovelData } from "./AddNovelPanel";
+import AddNovelPanel from "./AddNovelPanel";
 import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
 import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
 import { exportToFile } from "./queries";
@@ -616,7 +616,7 @@ export default function App() {
             onClose={() => setAddPanelOpen(false)}
             existingNovels={novels.map((n) => ({ id: n.id, title: n.canonical_title, aliases: n.aliases }))}
             onSubmit={async (data) => {
-              const id = await addNovel(data);
+              await addNovel(data);
               const updated = await getAllNovels();
               setNovels(updated);
             }}
@@ -743,15 +743,4 @@ export default function App() {
       )}
     </div>
   );
-}
-
-// ── Chapter Sort Extraction ───────────────────────────────────────────────────
-function parseChapterSort(raw: string): number | null {
-  const chapterMatch = raw.match(/chapter\s*(\d+\.?\d*)/i);
-  if (chapterMatch) return parseFloat(chapterMatch[1]);
-  const episodeMatch = raw.match(/episode\s*(\d+)/i);
-  if (episodeMatch) return parseFloat(episodeMatch[1]);
-  const bareMatch = raw.match(/^\s*(\d+\.?\d*)\s*$/);
-  if (bareMatch) return parseFloat(bareMatch[1]);
-  return null;
 }
