@@ -1,4 +1,6 @@
 import { useState } from "react";
+import AddNovelPanel, { type NewNovelData } from "./AddNovelPanel";
+import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Status = "reading" | "paused" | "completed" | "dropped" | "planned";
@@ -540,9 +542,11 @@ function QuickUpdateModal({
 function ListRow({
   novel,
   onQuickUpdate,
+  onClick,
 }: {
   novel: Novel;
   onQuickUpdate: (novel: Novel) => void;
+  onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -551,6 +555,7 @@ function ListRow({
       style={getTrStyle(hovered)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
     >
       <td style={{ ...styles.td, ...styles.titleCell }}>
         {novel.canonical_title}
@@ -580,9 +585,11 @@ function ListRow({
 function GridCard({
   novel,
   onQuickUpdate,
+  onClick,
 }: {
   novel: Novel;
   onQuickUpdate: (novel: Novel) => void;
+  onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -591,6 +598,7 @@ function GridCard({
       style={getGridCardStyle(hovered)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
     >
       <div style={styles.gridCover}>No Cover</div>
       <div style={styles.gridTitle}>{novel.canonical_title}</div>
@@ -615,6 +623,8 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [quickUpdateTarget, setQuickUpdateTarget] = useState<Novel | null>(null);
+  const [addPanelOpen, setAddPanelOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<EditNovelData | null>(null);
 
   const filtered = novels
     .filter((n) => {
@@ -660,7 +670,38 @@ export default function App() {
       <header style={styles.header}>
         <span style={styles.logo}>Noveltrackr</span>
         <div style={styles.headerRight}>
-          <button style={styles.addBtn}>+ Add Novel</button>
+          <button style={styles.addBtn} onClick={() => setAddPanelOpen(true)}>
+            + Add Novel
+          </button>
+          <AddNovelPanel
+            open={addPanelOpen}
+            onClose={() => setAddPanelOpen(false)}
+            existingNovels={novels.map((n) => ({ id: n.id, title: n.canonical_title, aliases: n.aliases }))}
+            onSubmit={(data: NewNovelData) => {
+              const newNovel = {
+                id: Date.now(),
+                ...data,
+                chapter_sort: null,
+                updated_at: new Date().toISOString(),
+              };
+              setNovels((prev) => [newNovel, ...prev]);
+              setAddPanelOpen(false);
+            }}
+          />
+          <EditNovelPanel
+            novel={editTarget}
+            onClose={() => setEditTarget(null)}
+            onSave={(data: EditNovelData) => {
+              setNovels((prev) => prev.map((n) =>
+                n.id === data.id ? { ...n, ...data } : n
+              ));
+              setEditTarget(null);
+            }}
+            onDelete={(id: number) => {
+              setNovels((prev) => prev.filter((n) => n.id !== id));
+              setEditTarget(null);
+            }}
+          />
         </div>
       </header>
 
@@ -727,14 +768,32 @@ export default function App() {
             </thead>
             <tbody>
               {filtered.map((n) => (
-                <ListRow key={n.id} novel={n} onQuickUpdate={setQuickUpdateTarget} />
+                <ListRow 
+                  key={n.id} 
+                  novel={n} 
+                  onQuickUpdate={setQuickUpdateTarget} 
+                  onClick={() => setEditTarget({
+                    ...n,
+                    current_chapter_raw: n.current_chapter_raw ?? "",
+                    cover_url: n.cover_url ?? "",
+                    })}
+                />
               ))}
             </tbody>
           </table>
         ) : (
           <div style={styles.grid}>
             {filtered.map((n) => (
-              <GridCard key={n.id} novel={n} onQuickUpdate={setQuickUpdateTarget} />
+              <GridCard
+                key={n.id} 
+                novel={n} 
+                onQuickUpdate={setQuickUpdateTarget} 
+                onClick={() => setEditTarget({
+                  ...n,
+                  current_chapter_raw: n.current_chapter_raw ?? "",
+                  cover_url: n.cover_url ?? "",
+                  })}
+                />
             ))}
           </div>
         )}
