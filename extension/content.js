@@ -1,73 +1,81 @@
 // Runs on every page — detects novel/chapter and messages the background worker
+console.log("[Noveltrackr] content script loaded on:", window.location.href);
 
-const SITE_EXTRACTORS = {
-  "royalroad.com": extractRoyalRoad,
-  "scribblehub.com": extractScribbleHub,
-};
-
-function extractRoyalRoad() {
-  const titleEl = document.querySelector(".fic-title h1, .fiction-title h1");
-  if (!titleEl) return null;
-  const title = titleEl.textContent.trim();
-  let chapter = null;
-  const chapterEl = document.querySelector(".chapter-title h1");
-  if (chapterEl) chapter = chapterEl.textContent.trim();
-  if (!chapter) {
-    const parts = document.title.split(" | ")[0].split(" - ");
-    if (parts.length >= 2) chapter = parts[0].trim();
-  }
-  return title && chapter ? { title, chapter } : null;
-}
-
-function extractScribbleHub() {
-  const match = document.title.match(
-    /^(.+?)\s*[-–]\s*(.+?)(\s*\||\s*-\s*Scribble)?$/
-  );
-  if (match) {
-    const a = match[1].trim();
-    const b = match[2].trim();
-    const aIsChapter = /^chapter/i.test(a);
-    return {
-      title: aIsChapter ? b : a,
-      chapter: aIsChapter ? a : b,
-    };
-  }
-  return null;
-}
 
 function extractGeneric() {
   const docTitle = document.title;
-  const patterns = [
-    /^(.+?)\s*[-–|]\s*(chapter\s*[\d.]+[^-|]*?)(?:\s*[-–|].*)?$/i,
-    /^(chapter\s*[\d.]+[^-|]*?)\s*[-–|]\s*(.+?)(?:\s*[-–|].*)?$/i,
-  ];
-  for (const pattern of patterns) {
-    const match = docTitle.match(pattern);
-    if (match) {
-      const a = match[1].trim();
-      const b = match[2].trim();
-      const aIsChapter = /^chapter/i.test(a);
-      return { title: aIsChapter ? b : a, chapter: aIsChapter ? a : b };
+  
+  // Strip site name suffix first — everything after last " | "
+  const withoutSite = docTitle.includes(" | ")
+    ? docTitle.substring(0, docTitle.lastIndexOf(" | "))
+    : docTitle;
+
+  // Now we have something like:
+  // "Chapter 1: The Hero's Requiem. - The Demon Queen Wants To Live. [Progression]"
+  // "The Demon Queen - Chapter 1"
+  // "Chapter 221 - Shadow Slave"
+
+  // Find the LAST " - " as the split point
+  // This handles "Chapter 1: Subtitle - Novel Title" correctly
+  const lastDash = withoutSite.lastIndexOf(" - ");
+  
+  if (lastDash !== -1) {
+    const left = withoutSite.substring(0, lastDash).trim();
+    const right = withoutSite.substring(lastDash + 3).trim();
+    
+    const leftIsChapter = /^chapter\s*\d/i.test(left) || /^episode\s*\d/i.test(left);
+    const rightIsChapter = /^chapter\s*\d/i.test(right) || /^episode\s*\d/i.test(right);
+    
+    if (leftIsChapter) {
+      // "Chapter 1: Hero's Requiem - Novel Title"
+      // Extract just "Chapter 1" from the left part
+      const chapterNum = left.match(/^(chapter\s*[\d.]+)/i)?.[1] ?? left;
+      return { title: right, chapter: chapterNum };
+    }
+    
+    if (rightIsChapter) {
+      // "Novel Title - Chapter 1"
+      const chapterNum = right.match(/^(chapter\s*[\d.]+)/i)?.[1] ?? right;
+      return { title: left, chapter: chapterNum };
     }
   }
+
+  // Fallback — try to find any chapter mention anywhere in the title
+  const chapterMatch = withoutSite.match(/chapter\s*([\d.]+)/i);
+  if (chapterMatch) {
+    // Remove the chapter part to get the novel title
+    const chapter = `Chapter ${chapterMatch[1]}`;
+    const title = withoutSite
+      .replace(/[-–|]\s*chapter\s*[\d.]+.*/i, "")
+      .replace(/chapter\s*[\d.]+.*?[-–|]\s*/i, "")
+      .trim();
+    if (title) return { title, chapter };
+  }
+
   return null;
 }
 
-function getExtractor() {
-  const hostname = window.location.hostname.replace("www.", "");
-  return SITE_EXTRACTORS[hostname] || extractGeneric;
-}
+
 
 function run() {
-  // Only fire on actual chapter pages — must have a chapter number
-  const extractor = getExtractor();
-  const result = extractor();
+  console.log("[Noveltrackr] run() called");
   
-  if (!result || !result.chapter || !result.title) return;
-  
-  // Check chapter looks real — must contain a number
-  if (!/\d/.test(result.chapter)) return;
 
+  const result = extractGeneric();
+  console.log("[Noveltrackr] extraction result:", result);
+  
+  if (!result || !result.chapter || !result.title) {
+    console.log("[Noveltrackr] bailing — missing title or chapter:", result);
+    return;
+  }
+
+  if (!/\d/.test(result.chapter)) {
+    console.log("[Noveltrackr] bailing — chapter has no number:", result.chapter);
+    return;
+  }
+
+  console.log("[Noveltrackr] sending message to background");
+  
   chrome.runtime.sendMessage({
     type: "CHAPTER_DETECTED",
     payload: {
@@ -76,6 +84,10 @@ function run() {
       url: window.location.href,
       domain: window.location.hostname.replace("www.", ""),
     }
+  }).then(() => {
+    console.log("[Noveltrackr] message sent successfully");
+  }).catch((e) => {
+    console.log("[Noveltrackr] sendMessage failed:", e);
   });
 }
 

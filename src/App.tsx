@@ -637,7 +637,16 @@ export default function App() {
     });
 
   useEffect(() => {
-    getAllNovels().then(setNovels);
+    // Initial load
+    getAllNovels().then((rows) => setNovels(rows as Novel[]));
+
+    // Poll for updates from extension every 5 seconds
+    const interval = setInterval(async () => {
+      const updated = await getAllNovels();
+      setNovels(updated as Novel[]);
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, []);
   async function handleQuickUpdate(id: number, chapterRaw: string) {
   await updateProgress(id, chapterRaw);

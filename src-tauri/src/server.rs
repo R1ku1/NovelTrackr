@@ -19,7 +19,6 @@ pub struct UpdateProgressPayload {
 }
 
 #[derive(Deserialize, Debug)]
-#[allow(dead_code)]
 pub struct QuickAddPayload {
     pub title: String,
     pub chapter_raw: String,
@@ -130,6 +129,21 @@ pub fn start_server(
                         Ok(payload) => {
                             match save_mapping(&db_path, &payload) {
                                 Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
+                                Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                            }
+                        }
+                        Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 400),
+                    }
+                }
+
+                ("POST", "/quick-add") => {
+                    let mut body = String::new();
+                    request.as_reader().read_to_string(&mut body).unwrap_or(0);
+                    
+                    match serde_json::from_str::<QuickAddPayload>(&body) {
+                        Ok(payload) => {
+                            match quick_add_novel(&db_path, &payload) {
+                                Ok(id) => json_response(format!(r#"{{"ok":true,"id":{}}}"#, id), 200),
                                 Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
                             }
                         }
@@ -263,3 +277,26 @@ fn regex_find(pattern_hint: &str, text: &str) -> Option<String> {
     }
     None
 }
+
+fn quick_add_novel(db_path: &str, payload: &QuickAddPayload) -> Result<i64, String> {
+    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    
+    conn.execute(
+        "INSERT INTO novels (canonical_title, status, notes, cover_url)
+         VALUES (?1, 'reading', '', '')",
+        rusqlite::params![payload.title],
+    ).map_err(|e| e.to_string())?;
+    
+    let id = conn.last_insert_rowid();
+    
+    if !payload.chapter_raw.is_empty() {
+        let chapter_sort: Option<f64> = parse_chapter_sort(&payload.chapter_raw);
+        conn.execute(
+            "INSERT INTO progress (novel_id, chapter_raw, chapter_sort, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'))",
+            rusqlite::params![id, payload.chapter_raw, chapter_sort],
+        ).map_err(|e| e.to_string())?;
+    }
+    
+    Ok(id)
+}   

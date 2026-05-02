@@ -1,7 +1,8 @@
 const API = "http://127.0.0.1:39172";
-let pendingDetection = null;
+// let pendingDetection = null;
 
-// Check if app is running
+console.log("[Noveltrackr] background service worker started");
+
 async function isAppRunning() {
   try {
     const res = await fetch(`${API}/status`, { signal: AbortSignal.timeout(1000) });
@@ -11,13 +12,11 @@ async function isAppRunning() {
   }
 }
 
-// Fetch all novels for matching
 async function getNovels() {
   const res = await fetch(`${API}/novels`);
   return res.json();
 }
 
-// Fuzzy match title against library
 function normalise(s) {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 }
@@ -38,7 +37,9 @@ function findMatches(detectedTitle, novels) {
   return novels
     .map(n => {
       const titleScore = similarity(detectedTitle, n.canonical_title);
-      const aliasScore = Math.max(0, ...n.aliases.map(a => similarity(detectedTitle, a)));
+      const aliasScore = n.aliases.length
+        ? Math.max(...n.aliases.map(a => similarity(detectedTitle, a)))
+        : 0;
       return { novel: n, score: Math.max(titleScore, aliasScore) };
     })
     .filter(({ score }) => score >= 0.75)
@@ -47,9 +48,24 @@ function findMatches(detectedTitle, novels) {
     .map(({ novel }) => novel);
 }
 
-// Check site_mappings first for known matches
+// Helper to save detection
+async function setPending(data) {
+  await chrome.storage.local.set({ pendingDetection: data });
+}
+
+// Helper to clear detection  
+async function clearPending() {
+  await chrome.storage.local.remove("pendingDetection");
+  chrome.action.setBadgeText({ text: "" });
+}
+
+// Helper to get detection
+async function getPending() {
+  const result = await chrome.storage.local.get("pendingDetection");
+  return result.pendingDetection || null;
+}
+
 async function getKnownMapping(domain, detectedTitle) {
-  // We store mappings locally in extension storage for speed
   const key = `mapping:${domain}:${normalise(detectedTitle)}`;
   const result = await chrome.storage.local.get(key);
   return result[key] || null;
@@ -60,62 +76,59 @@ async function saveLocalMapping(domain, detectedTitle, novelId) {
   await chrome.storage.local.set({ [key]: novelId });
 }
 
-// Main handler
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type !== "CHAPTER_DETECTED") return;
-  
-  const { title, chapter, url, domain } = message.payload;
-  
-  handleDetection({ title, chapter, url, domain, tabId: sender.tab.id });
-});
-
 async function handleDetection({ title, chapter, url, domain, tabId }) {
   const running = await isAppRunning();
-  
+
   if (!running) {
-    // Store pending but don't annoy user — only show badge
+    await setPending({ title, chapter, url, domain, appOffline: true });
     chrome.action.setBadgeText({ text: "!", tabId });
     chrome.action.setBadgeBackgroundColor({ color: "#555", tabId });
-    pendingDetection = { title, chapter, url, domain };
     return;
   }
 
-  // Check local mapping cache first
   const knownNovelId = await getKnownMapping(domain, title);
-  
+
   if (knownNovelId) {
-    // Known novel — store detection, show update badge
-    pendingDetection = { title, chapter, url, domain, novelId: knownNovelId, known: true };
+    await setPending({ title, chapter, url, domain, novelId: knownNovelId, known: true });
     chrome.action.setBadgeText({ text: "↑", tabId });
     chrome.action.setBadgeBackgroundColor({ color: "#60a5fa", tabId });
   } else {
-    // Unknown — fetch novels and fuzzy match
     try {
       const novels = await getNovels();
       const matches = findMatches(title, novels);
-      pendingDetection = { title, chapter, url, domain, matches, known: false };
+      await setPending({ title, chapter, url, domain, matches, known: false });
       chrome.action.setBadgeText({ text: "?", tabId });
       chrome.action.setBadgeBackgroundColor({ color: "#facc15", tabId });
     } catch {
-      return; // app running but query failed, silent
+      return;
     }
   }
-
-  // Send to popup if it's open
-  chrome.runtime.sendMessage({ type: "DETECTION_READY", payload: pendingDetection })
-    .catch(() => {}); // popup might not be open, that's fine
 }
 
-// Popup requests current detection
+// ── Single consolidated message listener ─────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log("[Noveltrackr] message received:", message.type);
+
+  if (message.type === "CHAPTER_DETECTED") {
+    handleDetection({
+        ...message.payload,
+        tabId: sender.tab?.id,
+    }).catch(console.error);
+    sendResponse({ ok: true });
+    return false;
+    }
+
   if (message.type === "GET_PENDING") {
-    sendResponse(pendingDetection);
-  }
-  
+    getPending().then(data => {
+        console.log("[Noveltrackr] GET_PENDING:", data);
+        sendResponse(data);
+    });
+    return true; // ← must be true now since it's async
+    }
+
   if (message.type === "CONFIRM_UPDATE") {
     const { novelId, chapter, url, domain, detectedTitle } = message.payload;
-    
-    // POST to local API
+
     fetch(`${API}/progress`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -124,30 +137,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chapter_raw: chapter,
         source_url: url,
         domain,
-      })
+      }),
     })
-    .then(async () => {
-      // Save mapping so we don't ask again
-      await saveLocalMapping(domain, detectedTitle, novelId);
+    .then(async (res) => {
+      const data = await res.json();
       
-      // Also tell the API to save mapping
+      if (!res.ok || data.error) {
+        // Novel likely deleted — clear stale local mapping
+        const key = `mapping:${domain}:${normalise(detectedTitle)}`;
+        await chrome.storage.local.remove(key);
+        await clearPending();
+        sendResponse({ error: "stale_mapping" });
+        return;
+      }
+
+      await saveLocalMapping(domain, detectedTitle, novelId);
       await fetch(`${API}/mappings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain, detected_title: detectedTitle, novel_id: novelId }),
+        body: JSON.stringify({
+          domain,
+          detected_title: detectedTitle,
+          novel_id: novelId,
+        }),
       });
-      
-      pendingDetection = null;
-      chrome.action.setBadgeText({ text: "" });
+      await clearPending();
       sendResponse({ ok: true });
     })
     .catch(e => sendResponse({ error: e.message }));
-    
-    return true; // async response
+
+    return true;
   }
-  
-  if (message.type === "CLEAR_PENDING") {
-    pendingDetection = null;
-    chrome.action.setBadgeText({ text: "" });
-  }
+
+if (message.type === "CLEAR_PENDING") {
+  clearPending().then(() => sendResponse({ ok: true }));
+  return true;
+}
 });

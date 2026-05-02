@@ -5,17 +5,21 @@
   "description": "Track your novel reading progress",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
-    "http://127.0.0.1:39172/*"
+    "http://127.0.0.1:39172/*",
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["https://*/*", "http://*/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
