@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AddNovelPanel, { type NewNovelData } from "./AddNovelPanel";
 import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
+import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
+
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Status = "reading" | "paused" | "completed" | "dropped" | "planned";
@@ -16,76 +18,6 @@ interface Novel {
   updated_at: string;
   aliases: string[];
 }
-
-// ── Mock Data ────────────────────────────────────────────────────────────────
-const MOCK_NOVELS: Novel[] = [
-  {
-    id: 1,
-    canonical_title: "Shadow Slave",
-    status: "reading",
-    notes: "",
-    cover_url: null,
-    current_chapter_raw: "Chapter 221",
-    chapter_sort: 221,
-    updated_at: "2025-04-28T10:00:00Z",
-    aliases: ["SS"],
-  },
-  {
-    id: 2,
-    canonical_title: "The Beginning After The End",
-    status: "reading",
-    notes: "Getting good again after the time skip",
-    cover_url: null,
-    current_chapter_raw: "Chapter 450",
-    chapter_sort: 450,
-    updated_at: "2025-04-27T18:30:00Z",
-    aliases: ["TBATE"],
-  },
-  {
-    id: 3,
-    canonical_title: "Omniscient Reader's Viewpoint",
-    status: "completed",
-    notes: "",
-    cover_url: null,
-    current_chapter_raw: "Chapter 551",
-    chapter_sort: 551,
-    updated_at: "2025-04-20T09:00:00Z",
-    aliases: ["ORV"],
-  },
-  {
-    id: 4,
-    canonical_title: "Reverend Insanity",
-    status: "paused",
-    notes: "On hold until I finish TBATE",
-    cover_url: null,
-    current_chapter_raw: "Chapter 89",
-    chapter_sort: 89,
-    updated_at: "2025-03-15T14:00:00Z",
-    aliases: [],
-  },
-  {
-    id: 5,
-    canonical_title: "Dungeon Defense",
-    status: "planned",
-    notes: "",
-    cover_url: null,
-    current_chapter_raw: null,
-    chapter_sort: null,
-    updated_at: "2025-03-01T00:00:00Z",
-    aliases: [],
-  },
-  {
-    id: 6,
-    canonical_title: "Mother of Learning",
-    status: "dropped",
-    notes: "Not for me",
-    cover_url: null,
-    current_chapter_raw: "Chapter 12",
-    chapter_sort: 12,
-    updated_at: "2025-02-10T00:00:00Z",
-    aliases: ["MoL"],
-  },
-];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const STATUS_META: Record<Status, { label: string; color: string }> = {
@@ -617,7 +549,8 @@ function GridCard({
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [novels, setNovels] = useState<Novel[]>(MOCK_NOVELS);
+  const [novels, setNovels] = useState<Novel[]>([]);
+  
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
@@ -648,6 +581,9 @@ export default function App() {
       return 0;
     });
 
+  useEffect(() => {
+    getAllNovels().then(setNovels);
+  }, []);
   function handleQuickUpdate(id: number, chapterRaw: string) {
     // Later: invoke('update_progress', { novelId: id, chapterRaw })
     setNovels((prev) =>
@@ -677,15 +613,10 @@ export default function App() {
             open={addPanelOpen}
             onClose={() => setAddPanelOpen(false)}
             existingNovels={novels.map((n) => ({ id: n.id, title: n.canonical_title, aliases: n.aliases }))}
-            onSubmit={(data: NewNovelData) => {
-              const newNovel = {
-                id: Date.now(),
-                ...data,
-                chapter_sort: null,
-                updated_at: new Date().toISOString(),
-              };
-              setNovels((prev) => [newNovel, ...prev]);
-              setAddPanelOpen(false);
+            onSubmit={async (data) => {
+              const id = await addNovel(data);
+              const updated = await getAllNovels();
+              setNovels(updated);
             }}
           />
           <EditNovelPanel
