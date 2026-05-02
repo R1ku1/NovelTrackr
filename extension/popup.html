@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      width: 320px;
+      background: #0f0f13;
+      color: #e8e6e1;
+      font-family: 'Georgia', serif;
+      font-size: 13px;
+    }
+
+    .header {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #1e1e28;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-size: 15px;
+      font-weight: 700;
+      font-style: italic;
+      opacity: 0.9;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #333;
+    }
+    .status-dot.online { background: #4ade80; }
+    .status-dot.offline { background: #f87171; }
+
+    .body { padding: 16px; }
+
+    .state-idle {
+      color: #444;
+      font-size: 12px;
+      text-align: center;
+      padding: 20px 0;
+      letter-spacing: 0.05em;
+    }
+
+    .state-offline {
+      color: #f87171;
+      font-size: 12px;
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    .detection-label {
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #555;
+      margin-bottom: 8px;
+    }
+
+    .detected-title {
+      font-size: 15px;
+      font-weight: 700;
+      font-style: italic;
+      color: #e8e6e1;
+      margin-bottom: 4px;
+      line-height: 1.2;
+    }
+
+    .detected-chapter {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 16px;
+    }
+
+    /* Known novel — one click update */
+    .btn-update {
+      width: 100%;
+      background: #e8e6e1;
+      color: #0f0f13;
+      border: none;
+      padding: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 20px;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .btn-ignore {
+      width: 100%;
+      background: transparent;
+      color: #555;
+      border: 1px solid #2a2a35;
+      padding: 8px;
+      font-family: inherit;
+      font-size: 12px;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+
+    /* Unknown novel — candidate list */
+    .candidate-label {
+      font-size: 10px;
+      color: #555;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .candidate {
+      display: flex;
+      align-items: center;
+      padding: 9px 10px;
+      border: 1px solid #1e1e28;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: border-color 0.1s, background 0.1s;
+    }
+    .candidate:hover {
+      border-color: #60a5fa55;
+      background: #60a5fa08;
+    }
+    .candidate-title {
+      flex: 1;
+      font-size: 13px;
+      color: #ccc;
+    }
+    .candidate-chapter {
+      font-size: 11px;
+      color: #444;
+      font-style: italic;
+    }
+
+    .not-in-library {
+      font-size: 11px;
+      color: #555;
+      text-align: center;
+      margin-top: 10px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+    }
+    .not-in-library:hover { color: #888; }
+
+    .success {
+      text-align: center;
+      padding: 20px 0;
+      color: #4ade80;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">Noveltrackr</span>
+    <div class="status-dot" id="statusDot"></div>
+  </div>
+  <div class="body" id="body">
+    <div class="state-idle">No chapter detected on this page.</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
