@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import AddNovelPanel, { type NewNovelData } from "./AddNovelPanel";
 import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
 import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
+import { exportToFile } from "./queries";
 
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -584,22 +585,12 @@ export default function App() {
   useEffect(() => {
     getAllNovels().then(setNovels);
   }, []);
-  function handleQuickUpdate(id: number, chapterRaw: string) {
-    // Later: invoke('update_progress', { novelId: id, chapterRaw })
-    setNovels((prev) =>
-      prev.map((n) =>
-        n.id === id
-          ? {
-              ...n,
-              current_chapter_raw: chapterRaw,
-              chapter_sort: parseChapterSort(chapterRaw),
-              updated_at: new Date().toISOString(),
-            }
-          : n
-      )
-    );
-    setQuickUpdateTarget(null);
-  }
+  async function handleQuickUpdate(id: number, chapterRaw: string) {
+  await updateProgress(id, chapterRaw);
+  const updated = await getAllNovels();
+  setNovels(updated as Novel[]);
+  setQuickUpdateTarget(null);
+}
 
   return (
     <div style={styles.app}>
@@ -609,6 +600,17 @@ export default function App() {
           <button style={styles.addBtn} onClick={() => setAddPanelOpen(true)}>
             + Add Novel
           </button>
+        <button style={styles.addBtn} onClick={async () => {
+  try {
+    const saved = await exportToFile();
+    if (saved) console.log("exported successfully");
+    else console.log("user cancelled");
+  } catch (e) {
+    console.error("export failed:", e);
+  }
+}}>
+  Export
+</button>
           <AddNovelPanel
             open={addPanelOpen}
             onClose={() => setAddPanelOpen(false)}
@@ -622,15 +624,17 @@ export default function App() {
           <EditNovelPanel
             novel={editTarget}
             onClose={() => setEditTarget(null)}
-            onSave={(data: EditNovelData) => {
-              setNovels((prev) => prev.map((n) =>
-                n.id === data.id ? { ...n, ...data } : n
-              ));
+            onSave={async (data: EditNovelData) => {
+              await updateNovel(data);
+              const updated = await getAllNovels();
+              setNovels(updated as Novel[]);
               setEditTarget(null);
             }}
-            onDelete={(id: number) => {
-              setNovels((prev) => prev.filter((n) => n.id !== id));
-              setEditTarget(null);
+            onDelete={async (id: number) => {
+                await deleteNovel(id);
+                const updated = await getAllNovels();
+                setNovels(updated as Novel[]);
+                setEditTarget(null);
             }}
           />
         </div>

@@ -1,5 +1,7 @@
 import { getDb } from "./db";
 import type { Status } from "./formComponents";
+import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 
 export interface NovelRow {
   id: number;
@@ -159,4 +161,40 @@ function parseChapterSort(raw: string): number | null {
   const bareMatch = raw.match(/^\s*(\d+\.?\d*)\s*$/);
   if (bareMatch) return parseFloat(bareMatch[1]);
   return null;
+}
+
+// ── Exporting Library contents ─────────────────────────
+export async function exportLibrary(): Promise<string> {
+  const db = await getDb();
+
+  const novels = await db.select<any[]>(`SELECT * FROM novels`);
+  const progress = await db.select<any[]>(`SELECT * FROM progress`);
+  const aliases = await db.select<any[]>(`SELECT * FROM aliases`);
+  const sources = await db.select<any[]>(`SELECT * FROM sources`);
+
+  const data = {
+    exported_at: new Date().toISOString(),
+    version: 1,
+    novels,
+    progress,
+    aliases,
+    sources,
+  };
+
+  return JSON.stringify(data, null, 2);
+}
+
+
+export async function exportToFile(): Promise<boolean> {
+  const json = await exportLibrary();
+  
+  const path = await save({
+    defaultPath: `noveltrackr-backup-${new Date().toISOString().slice(0,10)}.json`,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+
+  if (!path) return false; // user cancelled
+
+  await invoke("save_export", { path, content: json });
+  return true;
 }
