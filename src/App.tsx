@@ -3,7 +3,7 @@ import AddNovelPanel from "./AddNovelPanel";
 import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
 import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
 import { exportToFile } from "./queries";
-
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Status = "reading" | "paused" | "completed" | "dropped" | "planned";
@@ -98,6 +98,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "'Georgia', 'Times New Roman', serif",
     display: "flex",
     flexDirection: "column",
+    overflow: "hidden",
   },
   header: {
     borderBottom: "1px solid #2a2a35",
@@ -107,8 +108,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: 12,
     background: "#0f0f13",
-    position: "sticky",
-    top: 0,
+    flexShrink: 0,
     zIndex: 10,
   },
   logo: {
@@ -157,6 +157,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
     flexWrap: "wrap",
     borderBottom: "1px solid #1e1e28",
+    flexShrink: 0,
   },
   searchWrap: {
     flex: 1,
@@ -221,6 +222,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#555",
     textTransform: "uppercase",
     borderBottom: "1px solid #1a1a22",
+    flexShrink: 0,
   },
   main: {
     padding: "20px 28px",
@@ -545,21 +547,26 @@ function ListRow({
         {novel.current_chapter_raw ?? <span style={{ color: "#333" }}>—</span>}
       </td>
       <td style={{ ...styles.td, ...styles.sourceCell }}>
-        {novel.last_seen_url ? (
-            <a
-            href="#"
-            style={styles.sourceLink}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              window.open(novel.last_seen_url!, "_blank");
-            }}
-          >
-            {new URL(novel.last_seen_url).hostname.replace("www.", "")}
-          </a>
-        ) : (
-          <span style={{ color: "#333" }}>—</span>
-        )}
+        {novel.last_seen_url
+          ? <span
+              style={styles.sourceLink}
+              onClick={(e) => {
+                e.stopPropagation();
+                openUrl(novel.last_seen_url!).catch((err) => {
+                  console.error("openUrl failed:", err);
+                });
+              }}
+            >
+              {(() => {
+                try {
+                  return new URL(novel.last_seen_url!).hostname.replace("www.", "");
+                } catch {
+                  return novel.last_seen_url;
+                }
+              })()}
+            </span>
+          : <span style={{ color: "#333" }}>—</span>
+        }
       </td>
       <td style={styles.td}>
         <UpdateButton onClick={() => onQuickUpdate(novel)} />

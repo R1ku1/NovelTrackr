@@ -5,10 +5,14 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:tray:default",
     "sql:allow-load",
     "sql:allow-execute",
     "sql:allow-select",
     "sql:allow-close",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "shell:allow-open",
+    "opener:default",
+    "opener:allow-open-url"
   ]
 }
