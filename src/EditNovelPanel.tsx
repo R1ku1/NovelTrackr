@@ -268,11 +268,37 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
           {/* Cover URL */}
           <div>
             <FieldLabel text="Cover Image URL" />
+            
+            {/* Preview */}
+            {form.cover_url && (
+              <div style={{
+                width: 80,
+                height: 120,
+                marginBottom: 10,
+                borderRadius: 6,
+                overflow: "hidden",
+                border: "1px solid #2a2a35",
+                background: "#1a1a22",
+              }}>
+                <img
+                  src={form.cover_url}
+                  alt="Cover preview"
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              </div>
+            )}
+            
             <TextInput
               value={form.cover_url}
               onChange={(v) => set("cover_url", v)}
               placeholder="https://..."
             />
+            <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+              Paste any image URL. Right-click a cover image on the web → Copy image address.
+            </div>
           </div>
 
           {/* Notes */}

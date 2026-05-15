@@ -242,7 +242,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontStyle: "italic",
     cursor: "pointer",
   },
-
+  listCover: {
+    width: 32,
+    height: 48,
+    background: "#1a1a22",
+    border: "1px solid #1e1e28",
+    borderRadius: 4,
+    overflow: "hidden" as const,
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listCoverImg: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover" as const,
+    display: "block",
+  },
   // ── List View ──
   listTable: {
     width: "100%",
@@ -312,6 +329,20 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: "uppercase",
     border: "1px solid #1e1e28",
     borderRadius: 6,
+    overflow: "hidden",  // ← add this so image doesn't bleed outside radius
+    position: "relative" as const,
+  },
+  gridCoverImg: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover" as const,
+    display: "block",
+  },
+  gridCoverPlaceholder: {
+    fontSize: 11,
+    color: "#333",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
   },
   gridTitle: {
     fontSize: 13,
@@ -533,10 +564,27 @@ function ListRow({
       onClick={onClick}
     >
       <td style={{ ...styles.td, ...styles.titleCell }}>
-        {novel.canonical_title}
-        {novel.aliases.length > 0 && (
-          <span style={styles.aliasTag}>{novel.aliases[0]}</span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={styles.listCover}>
+            {novel.cover_url
+              ? <img
+                  src={novel.cover_url}
+                  alt=""
+                  style={styles.listCoverImg}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              : null
+            }
+          </div>
+          <div>
+            {novel.canonical_title}
+            {novel.aliases.length > 0 && (
+              <span style={styles.aliasTag}>{novel.aliases[0]}</span>
+            )}
+          </div>
+        </div>
       </td>
       <td style={styles.td}>
         <span style={getStatusBadgeStyle(novel.status)}>
@@ -594,7 +642,27 @@ function GridCard({
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
     >
-      <div style={styles.gridCover}>No Cover</div>
+      <div style={styles.gridCover}>
+        {novel.cover_url
+          ? <img
+              src={novel.cover_url}
+              alt={novel.canonical_title}
+              style={styles.gridCoverImg}
+              onError={(e) => {
+                // If image fails to load, show placeholder
+                (e.target as HTMLImageElement).style.display = "none";
+                const parent = (e.target as HTMLImageElement).parentElement;
+                if (parent) {
+                  const placeholder = document.createElement("span");
+                  placeholder.textContent = "No Cover";
+                  placeholder.style.cssText = "font-size:11px;color:#333;letter-spacing:0.08em;text-transform:uppercase;";
+                  parent.appendChild(placeholder);
+                }
+              }}
+            />
+          : <span style={styles.gridCoverPlaceholder}>No Cover</span>
+        }
+      </div>
       <div style={styles.gridTitle}>{novel.canonical_title}</div>
       <span style={getStatusBadgeStyle(novel.status)}>
         {STATUS_META[novel.status].label}

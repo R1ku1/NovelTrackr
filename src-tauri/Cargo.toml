@@ -1,6 +1,6 @@
 [package]
 name = "noveltrackr"
-version = "0.3.0"
+version = "0.5.0"
 description = "Novel Tracking Software"
 authors = ["R1ku1"]
 edition = "2021"
@@ -29,3 +29,4 @@ tiny_http = "0.12"
 rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5"
 tauri-plugin-shell = "2.3.5"
+tauri-plugin-single-instance = "2.4.2"

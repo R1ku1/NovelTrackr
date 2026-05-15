@@ -42,6 +42,14 @@ pub fn run() {
     server::start_server(db_path);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // When user tries to open a second instance, focus the existing window instead
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+            }
+        }))
         .plugin(tauri_plugin_sql::Builder::default()
             .add_migrations("sqlite:noveltrackr.db", migrations)
             .build())

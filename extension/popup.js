@@ -71,6 +71,7 @@ document.getElementById("btnUpdate").onclick = async () => {
         url: detection.url,
         domain: detection.domain,
         detectedTitle: detection.title,
+        tabId: detection.tabId,
       }
     });
 
@@ -191,6 +192,7 @@ function renderUnknown(body, detection) {
           url: detection.url,
           domain: detection.domain,
           detectedTitle: detection.title,
+          tabId: detection.tabId,
         }
       });
       body.innerHTML = `<div class="success">✓ Progress updated</div>`;
