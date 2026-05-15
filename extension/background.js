@@ -17,6 +17,56 @@ async function clearPending(tabId) {
   chrome.action.setBadgeText({ text: "", tabId });
 }
 
+async function setCoverPending(tabId, data) {
+  await chrome.storage.local.set({ [`cover_${tabId}`]: data });
+}
+
+async function getCoverPending(tabId) {
+  const result = await chrome.storage.local.get(`cover_${tabId}`);
+  return result[`cover_${tabId}`] || null;
+}
+
+async function clearCoverPending(tabId) {
+  await chrome.storage.local.remove(`cover_${tabId}`);
+  chrome.action.setBadgeText({ text: "", tabId });
+}
+
+async function handleCoverDetection({ title, coverUrl, domain, tabId }) {
+  const running = await isAppRunning();
+  if (!running) {
+    console.log("[Noveltrackr] app not running, skipping cover");
+    return;
+  }
+
+  try {
+    const novels = await getNovels();
+    console.log("[Noveltrackr] searching for:", title, "in", novels.length, "novels");
+    const matches = findMatches(title, novels);
+    console.log("[Noveltrackr] cover matches:", matches);
+
+    if (matches.length === 0) {
+      console.log("[Noveltrackr] no match found for cover, novel not in library");
+      return;
+    }
+
+    await setCoverPending(tabId, {
+      title,
+      coverUrl,
+      domain,
+      novelId: matches[0].id,
+      novelTitle: matches[0].canonical_title,
+      type: "cover",
+      tabId,
+    });
+
+    console.log("[Noveltrackr] cover pending set for tab", tabId);
+    chrome.action.setBadgeText({ text: "+", tabId });
+    chrome.action.setBadgeBackgroundColor({ color: "#a78bfa", tabId });
+  } catch (e) {
+    console.error("[Noveltrackr] handleCoverDetection failed:", e);
+  }
+}
+
 // ── App check ─────────────────────────────────────────────────────────────────
 async function isAppRunning() {
   try {
@@ -183,9 +233,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true; // async
   }
+
+if (message.type === "COVER_DETECTED") {
+  const { title, coverUrl, domain } = message.payload;
+  const tabId = sender.tab?.id;
+
+  if (tabId) {
+    handleCoverDetection({ title, coverUrl, domain, tabId })
+      .catch(console.error);
+  }
+
+  sendResponse({ ok: true });
+  return false;
+}
+
+  if (message.type === "GET_COVER_PENDING") {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (!tabId) { sendResponse(null); return; }
+      const data = await getCoverPending(tabId);
+      sendResponse(data);
+    });
+    return true;
+  }
+
+  if (message.type === "SAVE_COVER") {
+    const { novelId, coverUrl, tabId } = message.payload;
+    
+    fetch(`${API}/cover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ novel_id: novelId, cover_url: coverUrl }),
+    })
+    .then(async (res) => {
+      const data = await res.json();
+      if (tabId) await clearCoverPending(tabId);
+      sendResponse(data.ok ? { ok: true } : { error: data.error });
+    })
+    .catch(e => sendResponse({ error: e.message }));
+
+    return true;
+  }
+
+  if (message.type === "DISMISS_COVER") {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId) await clearCoverPending(tabId);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
 });
 
 // ── Clean up storage when a tab closes ───────────────────────────────────────
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.remove(`pending_${tabId}`);
+  chrome.storage.local.remove(`cover_${tabId}`);
 });

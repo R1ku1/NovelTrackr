@@ -9,16 +9,29 @@ async function isAppRunning() {
   }
 }
 
-async function getPendingWithRetry(maxAttempts = 8, delayMs = 200) {
+async function getPendingWithRetry(maxAttempts = 5, delayMs = 200) {
+  // Check badge first — if empty, no point retrying
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = tabs[0]?.id;
+  if (tabId) {
+    const badge = await chrome.action.getBadgeText({ tabId });
+    // Only badges set by chapter detection are worth retrying for
+    if (!badge || badge === "+" || badge === "img") {
+      return null; // cover or nothing — skip chapter retry
+    }
+  }
+
   for (let i = 0; i < maxAttempts; i++) {
     const detection = await chrome.runtime.sendMessage({ type: "GET_PENDING" });
-    console.log(`[Noveltrackr] attempt ${i + 1}, got:`, detection);
     if (detection) return detection;
     await new Promise(resolve => setTimeout(resolve, delayMs));
   }
   return null;
 }
 
+async function getCoverPending() {
+  return chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
+}
 async function init() {
   const dot = document.getElementById("statusDot");
   const body = document.getElementById("body");
@@ -31,25 +44,49 @@ async function init() {
     return;
   }
 
-  // Retry until we get detection data or give up
+  // Check chapter detection first
   const detection = await getPendingWithRetry();
-
-  console.log("[Noveltrackr] popup got detection:", detection);
-
-  if (!detection) {
-    body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+  if (detection) {
+    if (detection.known) renderKnown(body, detection);
+    else renderUnknown(body, detection);
     return;
   }
 
-  if (detection.appOffline) {
-    body.innerHTML = `<div class="state-offline">Noveltrackr is not running.<br>Open the desktop app first.</div>`;
+  // Then check cover detection — no retry needed, it's instant
+  const cover = await getCoverPending();
+  console.log("[Noveltrackr] cover pending:", cover);
+  if (cover) {
+    renderCoverPrompt(body, cover);
     return;
   }
 
-  if (detection.known) {
-    renderKnown(body, detection);
-  } else {
-    renderUnknown(body, detection);
+  body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+
+  if (!detection && !cover) {
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      if (attempts > 15) {
+        clearInterval(poll);
+        // Give up — show idle state
+        body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+        return;
+      }
+
+      const d = await chrome.runtime.sendMessage({ type: "GET_PENDING" });
+      if (d) {
+        clearInterval(poll);
+        if (d.known) renderKnown(body, d);
+        else renderUnknown(body, d);
+        return;
+      }
+
+      const c = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
+      if (c) {
+        clearInterval(poll);
+        renderCoverPrompt(body, c);
+      }
+    }, 200);
   }
 }
 
@@ -202,6 +239,51 @@ function renderUnknown(body, detection) {
 
   document.getElementById("btnIgnore").onclick = () => {
     chrome.runtime.sendMessage({ type: "CLEAR_PENDING" });
+    window.close();
+  };
+}
+
+function renderCoverPrompt(body, cover) {
+  body.innerHTML = `
+    <div class="detection-label">Cover Image Found</div>
+    <div class="detected-title">${esc(cover.novelTitle)}</div>
+    
+    <div style="margin: 12px 0; text-align: center;">
+      <img 
+        src="${esc(cover.coverUrl)}" 
+        alt="Cover"
+        style="max-width: 120px; max-height: 180px; border-radius: 6px; border: 1px solid #2a2a35; object-fit: cover;"
+        onerror="this.style.display='none'; document.getElementById('coverError').style.display='block';"
+      />
+      <div id="coverError" style="display:none; font-size:11px; color:#555; margin-top:8px;">
+        Could not load image preview
+      </div>
+    </div>
+
+    <button class="btn-update" id="btnSaveCover">Save as Cover</button>
+    <button class="btn-ignore" id="btnDismissCover" style="margin-top: 8px;">Ignore</button>
+  `;
+
+  document.getElementById("btnSaveCover").onclick = async () => {
+    const result = await chrome.runtime.sendMessage({
+      type: "SAVE_COVER",
+      payload: {
+        novelId: cover.novelId,
+        coverUrl: cover.coverUrl,
+        tabId: cover.tabId,
+      }
+    });
+
+    if (result?.ok) {
+      body.innerHTML = `<div class="success">✓ Cover saved</div>`;
+      setTimeout(window.close, 800);
+    } else {
+      body.innerHTML = `<div class="state-offline">Failed to save cover.</div>`;
+    }
+  };
+
+  document.getElementById("btnDismissCover").onclick = () => {
+    chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
     window.close();
   };
 }

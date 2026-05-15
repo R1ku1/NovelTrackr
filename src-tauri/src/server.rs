@@ -65,6 +65,15 @@ fn json_response(body: String, status: u16) -> Response<std::io::Cursor<Vec<u8>>
     response
 }
 
+fn save_cover(db_path: &str, novel_id: i64, cover_url: &str) -> Result<(), String> {
+    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE novels SET cover_url = ?1 WHERE id = ?2",
+        rusqlite::params![cover_url, novel_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // The DB handle gets passed in from main
 pub fn start_server(
     db_path: String,
@@ -144,6 +153,27 @@ pub fn start_server(
                         Ok(payload) => {
                             match quick_add_novel(&db_path, &payload) {
                                 Ok(id) => json_response(format!(r#"{{"ok":true,"id":{}}}"#, id), 200),
+                                Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                            }
+                        }
+                        Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 400),
+                    }
+                }
+
+                ("POST", "/cover") => {
+                    let mut body = String::new();
+                    request.as_reader().read_to_string(&mut body).unwrap_or(0);
+
+                    #[derive(serde::Deserialize)]
+                    struct CoverPayload {
+                        novel_id: i64,
+                        cover_url: String,
+                    }
+
+                    match serde_json::from_str::<CoverPayload>(&body) {
+                        Ok(payload) => {
+                            match save_cover(&db_path, payload.novel_id, &payload.cover_url) {
+                                Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
                                 Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
                             }
                         }
