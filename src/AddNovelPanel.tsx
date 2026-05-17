@@ -45,20 +45,33 @@ function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 }
 
-// Simple similarity ratio using longest common subsequence length
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => 
+    Array.from({ length: n + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0)
+  );
+  
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i-1] === b[j-1]) {
+        dp[i][j] = dp[i-1][j-1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+      }
+    }
+  }
+  return dp[m][n];
+}
+
 function similarity(a: string, b: string): number {
   const na = normalise(a);
   const nb = normalise(b);
   if (!na || !nb) return 0;
   if (na === nb) return 1;
-
-  // Count matching characters in order (cheap approximation)
-  let matches = 0;
-  let bi = 0;
-  for (let ai = 0; ai < na.length && bi < nb.length; ai++) {
-    if (na[ai] === nb[bi]) { matches++; bi++; }
-  }
-  return (matches * 2) / (na.length + nb.length);
+  
+  const dist = levenshtein(na, nb);
+  const maxLen = Math.max(na.length, nb.length);
+  return 1 - (dist / maxLen);
 }
 
 function findDuplicates(title: string, existing: ExistingNovel[]): ExistingNovel[] {

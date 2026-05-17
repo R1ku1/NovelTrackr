@@ -717,7 +717,10 @@ export default function App() {
 
     // Poll for updates from extension every 5 seconds
     const interval = setInterval(async () => {
+      // Only poll when window is visible
+      if (document.visibilityState === "hidden") return;
       const updated = await getAllNovels();
+      
       setNovels(updated as Novel[]);
     }, 5000);
 
