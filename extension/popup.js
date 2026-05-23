@@ -44,7 +44,17 @@ async function init() {
     return;
   }
 
-  // Check chapter detection first
+  // Check badge first — if empty, nothing is pending, show idle immediately
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = tabs[0]?.id;
+  const badge = tabId ? await chrome.action.getBadgeText({ tabId }) : "";
+
+  if (!badge) {
+    body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+    return;
+  }
+
+  // Badge is set — check what's pending
   const detection = await getPendingWithRetry();
   if (detection) {
     if (detection.known) renderKnown(body, detection);
@@ -52,42 +62,38 @@ async function init() {
     return;
   }
 
-  // Then check cover detection — no retry needed, it's instant
-  const cover = await getCoverPending();
-  console.log("[Noveltrackr] cover pending:", cover);
+  const cover = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
   if (cover) {
     renderCoverPrompt(body, cover);
     return;
   }
 
-  body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+  // Badge was set but data not ready yet — poll
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    attempts++;
 
-  if (!detection && !cover) {
-    let attempts = 0;
-    const poll = setInterval(async () => {
-      attempts++;
-      if (attempts > 15) {
-        clearInterval(poll);
-        // Give up — show idle state
-        body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
-        return;
-      }
+    if (attempts > 15) {
+      clearInterval(poll);
+      body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+      return;
+    }
 
-      const d = await chrome.runtime.sendMessage({ type: "GET_PENDING" });
-      if (d) {
-        clearInterval(poll);
-        if (d.known) renderKnown(body, d);
-        else renderUnknown(body, d);
-        return;
-      }
+    const d = await chrome.runtime.sendMessage({ type: "GET_PENDING" });
+    if (d) {
+      clearInterval(poll);
+      if (d.known) renderKnown(body, d);
+      else renderUnknown(body, d);
+      return;
+    }
 
-      const c = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
-      if (c) {
-        clearInterval(poll);
-        renderCoverPrompt(body, c);
-      }
-    }, 200);
-  }
+    const c = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
+    if (c) {
+      clearInterval(poll);
+      renderCoverPrompt(body, c);
+      return;
+    }
+  }, 200);
 }
 
 function renderKnown(body, detection) {
