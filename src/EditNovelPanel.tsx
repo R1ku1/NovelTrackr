@@ -33,6 +33,36 @@ interface Props {
   onSave: (data: EditNovelData) => void;
   onDelete: (id: number) => void;
 }
+function CoverPreview({ url }: { url: string }) {
+  const [broken, setBroken] = useState(false);
+
+  // Reset broken state when URL changes
+  useEffect(() => {
+    setBroken(false);
+  }, [url]);
+
+  if (broken) {
+    return (
+      <span style={{
+        fontSize: 10,
+        color: "#333",
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+      }}>
+        No Cover
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt="Cover preview"
+      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+      onError={() => setBroken(true)}
+    />
+  );
+}
 
 // ── Delete Confirmation ───────────────────────────────────────────────────────
 function DeleteConfirm({
@@ -268,8 +298,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
           {/* Cover URL */}
           <div>
             <FieldLabel text="Cover Image URL" />
-            
-            {/* Preview */}
+
             {form.cover_url && (
               <div style={{
                 width: 80,
@@ -279,25 +308,21 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
                 overflow: "hidden",
                 border: "1px solid #2a2a35",
                 background: "#1a1a22",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}>
-                <img
-                  src={form.cover_url}
-                  alt="Cover preview"
-                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
+                <CoverPreview url={form.cover_url} />
               </div>
             )}
-            
+
             <TextInput
               value={form.cover_url}
               onChange={(v) => set("cover_url", v)}
               placeholder="https://..."
             />
             <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
-              Paste any image URL. Right-click a cover image on the web → Copy image address.
+              Paste any image URL. Right-click a cover → Copy image address.
             </div>
           </div>
 
