@@ -94,6 +94,7 @@ export async function updateNovel(data: {
   notes: string;
   cover_url: string;
   current_chapter_raw: string;
+  last_seen_url: string;
   aliases: string[];
 }): Promise<void> {
   const db = await getDb();
@@ -118,6 +119,25 @@ export async function updateNovel(data: {
          updated_at=excluded.updated_at`,
       [data.id, data.current_chapter_raw, chapterSort]
     );
+  }
+  // Save source URL if provided
+  if (data.last_seen_url.trim()) {
+    const domain = (() => {
+      try { return new URL(data.last_seen_url).hostname.replace("www.", ""); }
+      catch { return ""; }
+    })();
+
+    if (domain) {
+      await db.execute(
+        `INSERT INTO sources (novel_id, domain, url_pattern, last_seen_url, last_seen_at, is_preferred)
+         VALUES ($1, $2, $2, $3, datetime('now'), 1)
+         ON CONFLICT(novel_id, domain) DO UPDATE SET
+           last_seen_url=excluded.last_seen_url,
+           last_seen_at=excluded.last_seen_at,
+           is_preferred=1`,
+        [data.id, domain, data.last_seen_url]
+      );
+    }
   }
 
   // Replace aliases — delete all then reinsert

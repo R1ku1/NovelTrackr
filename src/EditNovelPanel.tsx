@@ -25,6 +25,7 @@ export interface EditNovelData {
   cover_url: string;
   aliases: string[];
   updated_at: string;
+  last_seen_url: string;
 }
 
 interface Props {
@@ -196,6 +197,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
       current_chapter_raw: form.current_chapter_raw.trim(),
       cover_url: form.cover_url.trim(),
       notes: form.notes.trim(),
+      last_seen_url: form.last_seen_url.trim(),
       updated_at: new Date().toISOString(),
     });
     onClose();
@@ -323,6 +325,19 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
             />
             <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
               Paste any image URL. Right-click a cover → Copy image address.
+            </div>
+          </div>
+
+          {/* Source URL */}
+          <div>
+            <FieldLabel text="Source URL" />
+            <TextInput
+              value={form.last_seen_url}
+              onChange={(v) => set("last_seen_url", v)}
+              placeholder="https://..."
+            />
+            <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+              The website where you read this novel. Updated automatically by the extension.
             </div>
           </div>
 

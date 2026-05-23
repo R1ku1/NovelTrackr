@@ -865,6 +865,7 @@ export default function App() {
                     ...n,
                     current_chapter_raw: n.current_chapter_raw ?? "",
                     cover_url: n.cover_url ?? "",
+                    last_seen_url: n.last_seen_url ?? "",
                     })}
                 />
               ))}
@@ -880,6 +881,7 @@ export default function App() {
                 ...n,
                 current_chapter_raw: n.current_chapter_raw ?? "",
                 cover_url: n.cover_url ?? "",
+                last_seen_url: n.last_seen_url ?? "",
               })}
             >
               <div style={styles.compactTitle}>{n.canonical_title}</div>
@@ -900,6 +902,7 @@ export default function App() {
                   ...n,
                   current_chapter_raw: n.current_chapter_raw ?? "",
                   cover_url: n.cover_url ?? "",
+                  last_seen_url: n.last_seen_url ?? "",
                   })}
                 />
             ))}
