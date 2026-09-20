@@ -19,7 +19,7 @@ async function getPendingWithRetry(maxAttempts = 5, delayMs = 200) {
   if (tabId) {
     const badge = await chrome.action.getBadgeText({ tabId });
     // Only badges set by chapter detection are worth retrying for
-    if (!badge || badge === "+" || badge === "img") {
+    if (!badge || badge === "+") {
       return null; // cover or nothing — skip chapter retry
     }
   }

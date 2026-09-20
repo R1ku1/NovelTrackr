@@ -316,13 +316,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "inherit",
     whiteSpace: "nowrap",
   },
-  dateCell: {
-    color: "#444",
-    fontSize: 12,
-    letterSpacing: "0.05em",
-    whiteSpace: "nowrap",
-  },
-
   // ── Grid View ──
   grid: {
     display: "grid",
