@@ -11,8 +11,9 @@ const API_HEADER_VALUE: &str = "1";
 /// Same threshold as the extension and AddNovelPanel.findDuplicates
 const DUPLICATE_THRESHOLD: f64 = 0.75;
 
-/// Status a novel gets when the app adds it for you. Must match
-/// migrations/001_init.sql and formComponents.DEFAULT_STATUS.
+/// Status a novel gets when the app adds it for you. Keep in sync with
+/// formComponents.DEFAULT_STATUS. The sqlite column default stays 'reading' as
+/// a legacy value — migration 1 must not be edited once applied (sqlx checksums).
 const DEFAULT_STATUS: &str = "planned";
 
 fn is_api_header(name: &str, value: &str) -> bool {
@@ -612,26 +613,37 @@ mod tests {
         assert!(bind_server(&free).is_ok());
     }
 
-    /// The app, the schema default and the fresh-install migrations must agree.
-    /// Also proves all three migration files still apply cleanly.
+    /// The real write path must use DEFAULT_STATUS, regardless of the schema's
+    /// legacy column default (which must stay 'reading' — editing migration 1
+    /// breaks the checksum sqlx stores for it).
     #[test]
-    fn fresh_database_defaults_to_the_app_status() {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+    fn quick_add_uses_the_app_default_status() {
+        let path = std::env::temp_dir().join(format!("nt-selftest-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        // Fresh schema, exactly as a new install would get it
+        let conn = rusqlite::Connection::open(&path).unwrap();
         conn.execute_batch(include_str!("../migrations/001_init.sql")).unwrap();
         conn.execute_batch(include_str!("../migrations/002_sources_unique.sql")).unwrap();
         conn.execute_batch(include_str!("../migrations/003_aliases_index.sql")).unwrap();
+        drop(conn);
 
-        // Insert without naming a status and see what the schema picks
-        conn.execute("INSERT INTO novels (canonical_title) VALUES ('Untitled')", [])
-            .unwrap();
+        let result = quick_add_novel(
+            path.to_str().unwrap(),
+            &QuickAddPayload { title: "Self Test".to_string(), chapter_raw: String::new() },
+        )
+        .unwrap();
+        let QuickAddResult::Added(id) = result else {
+            panic!("expected a fresh add, got a duplicate");
+        };
 
+        let conn = rusqlite::Connection::open(&path).unwrap();
         let status: String = conn
-            .query_row("SELECT status FROM novels", [], |row| row.get(0))
+            .query_row("SELECT status FROM novels WHERE id = ?1", [id], |row| row.get(0))
             .unwrap();
-        assert_eq!(
-            status, DEFAULT_STATUS,
-            "schema default must match the status the app writes"
-        );
+        assert_eq!(status, DEFAULT_STATUS, "quick-add must write the app's default status");
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
