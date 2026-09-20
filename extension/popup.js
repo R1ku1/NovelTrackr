@@ -1,8 +1,11 @@
 const API = "http://127.0.0.1:39172";
 
+// Required by the app's local server — see background.js
+const API_HEADERS = { "Content-Type": "application/json", "X-Noveltrackr": "1" };
+
 async function isAppRunning() {
   try {
-    const res = await fetch(`${API}/status`, { signal: AbortSignal.timeout(1000) });
+    const res = await fetch(`${API}/status`, { headers: API_HEADERS, signal: AbortSignal.timeout(1000) });
     return res.ok;
   } catch {
     return false;
@@ -47,7 +50,14 @@ async function init() {
   // Check badge first — if empty, nothing is pending, show idle immediately
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tabId = tabs[0]?.id;
-  const badge = tabId ? await chrome.action.getBadgeText({ tabId }) : "";
+  let badge = tabId ? await chrome.action.getBadgeText({ tabId }) : "";
+
+  // The background only sets the badge after it has talked to the app (~1s after
+  // page load), so give it a moment instead of falsely reporting "nothing here".
+  for (let i = 0; !badge && tabId && i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    badge = await chrome.action.getBadgeText({ tabId });
+  }
 
   if (!badge) {
     body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
@@ -139,18 +149,43 @@ function mappingKey(domain, title) {
   return `mapping:${domain}:${norm}`;
 }
 
-// Cache the domain→novel link locally and persist it in the app's DB
+// Cache the domain→novel link locally and persist it in the app's DB.
+// Returns false if the app rejected it, so callers never claim a link that isn't there.
 async function cacheMapping(domain, title, novelId) {
   await chrome.storage.local.set({ [mappingKey(domain, title)]: novelId });
-  await fetch(`${API}/mappings`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      domain,
-      detected_title: title,
-      novel_id: novelId,
-    }),
-  });
+  try {
+    const res = await fetch(`${API}/mappings`, {
+      method: "POST",
+      headers: API_HEADERS,
+      body: JSON.stringify({
+        domain,
+        detected_title: title,
+        novel_id: novelId,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Progress is the write that must not be lost, so its result is reported back
+async function saveProgress(novelId, detection) {
+  try {
+    const res = await fetch(`${API}/progress`, {
+      method: "POST",
+      headers: API_HEADERS,
+      body: JSON.stringify({
+        novel_id: novelId,
+        chapter_raw: detection.chapter,
+        source_url: detection.url,
+        domain: detection.domain,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 function renderUnknown(body, detection) {
@@ -177,31 +212,39 @@ function renderUnknown(body, detection) {
       try {
         const res = await fetch(`${API}/quick-add`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: API_HEADERS,
           body: JSON.stringify({
             title: detection.title,
             chapter_raw: detection.chapter,
           }),
         });
         const data = await res.json();
-        if (data.ok) {
-          await cacheMapping(detection.domain, detection.title, data.id);
-          await fetch(`${API}/progress`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              novel_id: data.id,
-              chapter_raw: detection.chapter,
-              source_url: detection.url,
-              domain: detection.domain,
-            }),
-          });
-          chrome.runtime.sendMessage({ type: "CLEAR_PENDING" });
-          body.innerHTML = `<div class="success">✓ Added to library</div>`;
-          setTimeout(window.close, 800);
-        } else {
-          body.innerHTML = `<div class="state-offline">Error: ${esc(data.error)}</div>`;
+
+        // The app refuses to add a novel it thinks you already have
+        if (data.error === "duplicate" && data.novel_id) {
+          renderDuplicatePrompt(body, detection, data);
+          return;
         }
+
+        if (!data.ok) {
+          body.innerHTML = `<div class="state-offline">Error: ${esc(data.error)}</div>`;
+          return;
+        }
+
+        const saved = await saveProgress(data.id, detection);
+        const linked = await cacheMapping(detection.domain, detection.title, data.id);
+
+        if (!saved) {
+          body.innerHTML = `<div class="state-offline">Added to the library, but your chapter couldn't be saved. Is the app still running?</div>`;
+          return;
+        }
+
+        chrome.runtime.sendMessage({ type: "CLEAR_PENDING" });
+        body.innerHTML = linked
+          ? `<div class="success">✓ Added to library</div>`
+          : `<div class="success">✓ Added to library</div>
+             <div class="state-offline">Couldn't save the site link — reopen this page to retry.</div>`;
+        setTimeout(window.close, 900);
       } catch (e) {
         body.innerHTML = `<div class="state-offline">Failed to connect to app.</div>`;
       }
@@ -331,28 +374,40 @@ function renderAddPrompt(body, cover) {
     try {
       const res = await fetch(`${API}/quick-add`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: API_HEADERS,
         body: JSON.stringify({ title: cover.title, chapter_raw: "" }),
       });
       const data = await res.json();
+
+      // The app refuses to add a novel it thinks you already have
+      if (data.error === "duplicate" && data.novel_id) {
+        renderDuplicatePrompt(body, cover, data);
+        return;
+      }
 
       if (!data.ok) {
         body.innerHTML = `<div class="state-offline">Error: ${esc(data.error)}</div>`;
         return;
       }
 
+      let coverSaved = true;
       if (cover.coverUrl) {
-        await fetch(`${API}/cover`, {
+        const coverRes = await fetch(`${API}/cover`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: API_HEADERS,
           body: JSON.stringify({ novel_id: data.id, cover_url: cover.coverUrl }),
         });
+        coverSaved = coverRes.ok;
       }
-      await cacheMapping(cover.domain, cover.title, data.id);
+      const linked = await cacheMapping(cover.domain, cover.title, data.id);
 
       chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
-      body.innerHTML = `<div class="success">✓ Added to library</div>`;
-      setTimeout(window.close, 800);
+      const missed = [!coverSaved && "cover", !linked && "site link"].filter(Boolean);
+      body.innerHTML = missed.length
+        ? `<div class="success">✓ Added to library</div>
+           <div class="state-offline">Couldn't save the ${esc(missed.join(" and "))} — try again from this page.</div>`
+        : `<div class="success">✓ Added to library</div>`;
+      setTimeout(window.close, 900);
     } catch {
       body.innerHTML = `<div class="state-offline">Failed to connect to app.</div>`;
     }
@@ -360,6 +415,48 @@ function renderAddPrompt(body, cover) {
 
   document.getElementById("btnDismissCover").onclick = () => {
     chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
+    window.close();
+  };
+}
+
+// The title matched something already in the library, so nothing new was created
+function renderDuplicatePrompt(body, pending, duplicate) {
+  const hasChapter = Boolean(pending.chapter);
+
+  body.innerHTML = `
+    <div class="detection-label">Already in your library</div>
+    <div class="detected-title">${esc(duplicate.novel_title)}</div>
+    ${hasChapter
+      ? `<div class="detected-chapter">${esc(pending.chapter)}</div>`
+      : ""}
+    <div class="candidate-label" style="margin-top:12px; color:#555">
+      "${esc(pending.title)}" matched this novel, so nothing new was added.
+    </div>
+    <button class="btn-update" id="btnLink" style="margin-top:12px">
+      ${hasChapter ? "Link &amp; save progress" : "Link this page to it"}
+    </button>
+    <button class="btn-ignore" id="btnIgnore" style="margin-top:8px">Ignore</button>
+  `;
+
+  document.getElementById("btnLink").onclick = async () => {
+    const linked = await cacheMapping(pending.domain, pending.title, duplicate.novel_id);
+
+    if (!linked) {
+      body.innerHTML = `<div class="state-offline">Couldn't save the link. Is the app still running?</div>`;
+      return;
+    }
+
+    if (hasChapter) {
+      await saveProgress(duplicate.novel_id, pending);
+    }
+
+    chrome.runtime.sendMessage({ type: hasChapter ? "CLEAR_PENDING" : "DISMISS_COVER" });
+    body.innerHTML = `<div class="success">✓ Linked to ${esc(duplicate.novel_title)}</div>`;
+    setTimeout(window.close, 900);
+  };
+
+  document.getElementById("btnIgnore").onclick = () => {
+    chrome.runtime.sendMessage({ type: hasChapter ? "CLEAR_PENDING" : "DISMISS_COVER" });
     window.close();
   };
 }

@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_aliases_novel ON aliases(novel_id);

@@ -29,6 +29,12 @@ pub fn run() {
             sql: include_str!("../migrations/002_sources_unique.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "aliases novel index",
+            sql: include_str!("../migrations/003_aliases_index.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     let db_path = format!(

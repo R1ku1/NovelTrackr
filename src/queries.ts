@@ -39,9 +39,17 @@ export async function getAllNovels(): Promise<NovelRow[]> {
     `SELECT novel_id, alias FROM aliases`
   );
 
+  // Group once — filtering per novel inside the map is O(novels × aliases)
+  const aliasesByNovel = new Map<number, string[]>();
+  for (const a of aliases) {
+    const list = aliasesByNovel.get(a.novel_id);
+    if (list) list.push(a.alias);
+    else aliasesByNovel.set(a.novel_id, [a.alias]);
+  }
+
   return novels.map((n) => ({
     ...n,
-    aliases: aliases.filter((a) => a.novel_id === n.id).map((a) => a.alias),
+    aliases: aliasesByNovel.get(n.id) ?? [],
   }));
 }
 
@@ -107,9 +115,10 @@ export async function updateNovel(data: {
     [data.canonical_title, data.status, data.notes, data.cover_url, data.id]
   );
 
-  // Upsert progress
-  if (data.current_chapter_raw.trim()) {
-    const chapterSort = parseChapterSort(data.current_chapter_raw);
+  // Upsert progress — an empty field means "no progress", so drop the row
+  const chapterRaw = data.current_chapter_raw.trim();
+  if (chapterRaw) {
+    const chapterSort = parseChapterSort(chapterRaw);
     await db.execute(
       `INSERT INTO progress (novel_id, chapter_raw, chapter_sort, updated_at)
        VALUES ($1, $2, $3, datetime('now'))
@@ -117,8 +126,10 @@ export async function updateNovel(data: {
          chapter_raw=excluded.chapter_raw,
          chapter_sort=excluded.chapter_sort,
          updated_at=excluded.updated_at`,
-      [data.id, data.current_chapter_raw, chapterSort]
+      [data.id, chapterRaw, chapterSort]
     );
+  } else {
+    await db.execute(`DELETE FROM progress WHERE novel_id=$1`, [data.id]);
   }
   // Save source URL if provided
   if (data.last_seen_url.trim()) {
@@ -128,6 +139,11 @@ export async function updateNovel(data: {
     })();
 
     if (domain) {
+      // Only one preferred source per novel — the list view reads with LIMIT 1
+      await db.execute(
+        `UPDATE sources SET is_preferred=0 WHERE novel_id=$1`,
+        [data.id]
+      );
       await db.execute(
         `INSERT INTO sources (novel_id, domain, url_pattern, last_seen_url, last_seen_at, is_preferred)
          VALUES ($1, $2, $2, $3, datetime('now'), 1)
@@ -195,14 +211,16 @@ export async function exportLibrary(): Promise<string> {
   const progress = await db.select<any[]>(`SELECT * FROM progress`);
   const aliases = await db.select<any[]>(`SELECT * FROM aliases`);
   const sources = await db.select<any[]>(`SELECT * FROM sources`);
+  const siteMappings = await db.select<any[]>(`SELECT * FROM site_mappings`);
 
   const data = {
     exported_at: new Date().toISOString(),
-    version: 1,
+    version: 2,
     novels,
     progress,
     aliases,
     sources,
+    site_mappings: siteMappings,
   };
 
   return JSON.stringify(data, null, 2);

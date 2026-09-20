@@ -13,6 +13,10 @@ export async function getDb(): Promise<Database> {
     _db = db;
     _loading = null;
     return db;
+  }).catch((e) => {
+    // Don't cache a failed load — every later call would rethrow the same error
+    _loading = null;
+    throw e;
   });
 
   return _loading;

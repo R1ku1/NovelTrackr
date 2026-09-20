@@ -60,16 +60,23 @@ function getTrStyle(hovered: boolean): React.CSSProperties {
   };
 }
 
+// The DB row is untyped at the boundary — an unrecognised status must not crash the view
+function statusMeta(status: string): { label: string; color: string } {
+  return (STATUS_META as Record<string, { label: string; color: string }>)[status]
+    ?? { label: status || "Unknown", color: "#666" };
+}
+
 function getStatusBadgeStyle(status: Status): React.CSSProperties {
+  const meta = statusMeta(status);
   return {
     display: "inline-block",
     fontSize: 11,
     letterSpacing: "0.06em",
     textTransform: "uppercase",
-    color: STATUS_META[status].color,
-    border: `1px solid ${STATUS_META[status].color}40`,
+    color: meta.color,
+    border: `1px solid ${meta.color}40`,
     padding: "2px 9px",
-    background: `${STATUS_META[status].color}0f`,
+    background: `${meta.color}0f`,
     borderRadius: 20,
   };
 }
@@ -135,6 +142,13 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: "0.06em",
     cursor: "pointer",
     borderRadius: 20,
+  },
+  notice: {
+    fontSize: 12,
+    color: "#8a8a96",
+    letterSpacing: "0.03em",
+    maxWidth: 340,
+    lineHeight: 1.35,
   },
   searchClear: {
     position: "absolute",
@@ -588,7 +602,7 @@ function ListRow({
       </td>
       <td style={styles.td}>
         <span style={getStatusBadgeStyle(novel.status)}>
-          {STATUS_META[novel.status].label}
+          {statusMeta(novel.status).label}
         </span>
       </td>
       <td style={{ ...styles.td, ...styles.chapterCell }}>
@@ -665,7 +679,7 @@ function GridCard({
       </div>
       <div style={styles.gridTitle}>{novel.canonical_title}</div>
       <span style={getStatusBadgeStyle(novel.status)}>
-        {STATUS_META[novel.status].label}
+        {statusMeta(novel.status).label}
       </span>
       <div style={styles.gridMeta}>
         <span style={{ color: "#666", fontSize: 12 }}>
@@ -688,6 +702,8 @@ export default function App() {
   const [quickUpdateTarget, setQuickUpdateTarget] = useState<Novel | null>(null);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<EditNovelData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const filtered = novels
     .filter((n) => {
@@ -712,16 +728,25 @@ export default function App() {
     });
 
   useEffect(() => {
-    // Initial load
-    getAllNovels().then((rows) => setNovels(rows as Novel[]));
+    // Initial load — a failure must not look like an empty library
+    getAllNovels()
+      .then((rows) => setNovels(rows as Novel[]))
+      .catch((e: unknown) => {
+        console.error("failed to load library:", e);
+        setLoadError(e instanceof Error ? e.message : String(e));
+      });
 
     // Poll for updates from extension every 5 seconds
     const interval = setInterval(async () => {
       // Only poll when window is visible
       if (document.visibilityState === "hidden") return;
-      const updated = await getAllNovels();
-      
-      setNovels(updated as Novel[]);
+      try {
+        const updated = await getAllNovels();
+        setNovels(updated as Novel[]);
+        setLoadError(null); // keep showing real data if a poll fails
+      } catch (e) {
+        console.error("library refresh failed:", e);
+      }
     }, 5000);
 
     return () => clearInterval(interval);
@@ -744,14 +769,20 @@ export default function App() {
         <button style={styles.addBtn} onClick={async () => {
   try {
     const saved = await exportToFile();
-    if (saved) console.log("exported successfully");
-    else console.log("user cancelled");
+    console.log(saved ? "exported successfully" : "user cancelled");
+    setNotice(saved
+      ? `Exported to file (novels, progress, aliases, sources, site links)`
+      : "Export cancelled");
   } catch (e) {
     console.error("export failed:", e);
+    setNotice("Export failed — see the console for details");
   }
+  // auto-dismiss, without clobbering a newer message
+  window.setTimeout(() => setNotice((n) => (n?.startsWith("Export") ? null : n)), 5000);
 }}>
   Export
 </button>
+        {notice && <span style={styles.notice}>{notice}</span>}
           <AddNovelPanel
             open={addPanelOpen}
             onClose={() => setAddPanelOpen(false)}
@@ -766,7 +797,18 @@ export default function App() {
             novel={editTarget}
             onClose={() => setEditTarget(null)}
             onSave={async (data: EditNovelData) => {
-              await updateNovel(data);
+              // The panel edits a snapshot. If the extension wrote a newer chapter while
+              // it was open, keep that instead of reverting real progress to stale data.
+              const before = await getAllNovels();
+              const live = before.find((n) => n.id === data.id) as Novel | undefined;
+              const chapterUntouched = !editTarget
+                || data.current_chapter_raw === editTarget.current_chapter_raw;
+
+              const payload = chapterUntouched && live
+                ? { ...data, current_chapter_raw: live.current_chapter_raw ?? "" }
+                : data;
+
+              await updateNovel(payload);
               const updated = await getAllNovels();
               setNovels(updated as Novel[]);
               setEditTarget(null);
@@ -837,12 +879,19 @@ export default function App() {
 
       <div style={styles.countBar}>
         {filtered.length} {filtered.length === 1 ? "novel" : "novels"}
-        {statusFilter !== "all" && ` · ${STATUS_META[statusFilter].label}`}
+        {statusFilter !== "all" && ` · ${statusMeta(statusFilter).label}`}
         {search && ` · "${search}"`}
       </div>
 
       <main style={styles.main}>
-        {filtered.length === 0 ? (
+        {loadError ? (
+          <div style={{ ...styles.emptyState, color: "#f87171" }}>
+            Couldn't load your library.
+            <div style={{ fontSize: 12, color: "#8a5a5a", marginTop: 8, letterSpacing: 0 }}>
+              {loadError}
+            </div>
+          </div>
+        ) : filtered.length === 0 ? (
           <div style={styles.emptyState}>No novels found.</div>
         ) : viewMode === "list" ? (
           <table style={styles.listTable}>
@@ -886,7 +935,7 @@ export default function App() {
             >
               <div style={styles.compactTitle}>{n.canonical_title}</div>
               <span style={{ ...getStatusBadgeStyle(n.status), fontSize: 9, padding: "1px 6px" }}>
-                {STATUS_META[n.status].label}
+                {statusMeta(n.status).label}
               </span>
             </div>
           ))}

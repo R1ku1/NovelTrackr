@@ -1,5 +1,10 @@
 const API = "http://127.0.0.1:39172";
 
+// The app's local server rejects anything without this header. It is not
+// CORS-safelisted, so no other website can reach the API without a preflight
+// that the server's CORS headers never satisfy.
+const API_HEADERS = { "Content-Type": "application/json", "X-Noveltrackr": "1" };
+
 console.log("[Noveltrackr] background service worker started");
 
 // ── Storage helpers — keyed by tabId ─────────────────────────────────────────
@@ -81,7 +86,7 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId }) {
 // ── App check ─────────────────────────────────────────────────────────────────
 async function isAppRunning() {
   try {
-    const res = await fetch(`${API}/status`, { signal: AbortSignal.timeout(1000) });
+    const res = await fetch(`${API}/status`, { headers: API_HEADERS, signal: AbortSignal.timeout(1000) });
     return res.ok;
   } catch {
     return false;
@@ -89,7 +94,7 @@ async function isAppRunning() {
 }
 
 async function getNovels() {
-  const res = await fetch(`${API}/novels`);
+  const res = await fetch(`${API}/novels`, { headers: API_HEADERS });
   return res.json();
 }
 
@@ -214,7 +219,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     fetch(`${API}/progress`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: API_HEADERS,
       body: JSON.stringify({
         novel_id: novelId,
         chapter_raw: chapter,
@@ -237,7 +242,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await saveLocalMapping(domain, detectedTitle, novelId);
       await fetch(`${API}/mappings`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: API_HEADERS,
         body: JSON.stringify({
           domain,
           detected_title: detectedTitle,
@@ -290,7 +295,7 @@ if (message.type === "COVER_DETECTED") {
     
     fetch(`${API}/cover`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: API_HEADERS,
       body: JSON.stringify({ novel_id: novelId, cover_url: coverUrl }),
     })
     .then(async (res) => {
@@ -317,4 +322,12 @@ if (message.type === "COVER_DETECTED") {
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.remove(`pending_${tabId}`);
   chrome.storage.local.remove(`cover_${tabId}`);
+});
+
+// ── Navigating away invalidates whatever was detected on the previous page ────
+// Otherwise the badge and popup keep offering to update a page you already left.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (!changeInfo.url) return;
+  clearPending(tabId);
+  clearCoverPending(tabId);
 });
