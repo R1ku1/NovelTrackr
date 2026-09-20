@@ -82,7 +82,7 @@ function extractCoverImage() {
     ".novel-cover img",
     ".book-cover img",
     // NovelUpdates
-    ".seriesediting img",
+    ".serieseditimg img",
     "div.wpb_wrapper img",
   ];
 

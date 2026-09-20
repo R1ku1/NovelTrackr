@@ -134,6 +134,25 @@ document.getElementById("btnUpdate").onclick = async () => {
   };
 }
 
+function mappingKey(domain, title) {
+  const norm = title.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  return `mapping:${domain}:${norm}`;
+}
+
+// Cache the domain→novel link locally and persist it in the app's DB
+async function cacheMapping(domain, title, novelId) {
+  await chrome.storage.local.set({ [mappingKey(domain, title)]: novelId });
+  await fetch(`${API}/mappings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      domain,
+      detected_title: title,
+      novel_id: novelId,
+    }),
+  });
+}
+
 function renderUnknown(body, detection) {
   const matches = detection.matches || [];
   console.log("[Noveltrackr] renderUnknown called, matches:", matches.length, matches);
@@ -166,8 +185,7 @@ function renderUnknown(body, detection) {
         });
         const data = await res.json();
         if (data.ok) {
-          const key = `mapping:${detection.domain}:${detection.title.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim()}`;
-          await chrome.storage.local.set({ [key]: data.id });
+          await cacheMapping(detection.domain, detection.title, data.id);
           await fetch(`${API}/progress`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -176,15 +194,6 @@ function renderUnknown(body, detection) {
               chapter_raw: detection.chapter,
               source_url: detection.url,
               domain: detection.domain,
-            }),
-          });
-          await fetch(`${API}/mappings`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              domain: detection.domain,
-              detected_title: detection.title,
-              novel_id: data.id,
             }),
           });
           chrome.runtime.sendMessage({ type: "CLEAR_PENDING" });
@@ -250,6 +259,11 @@ function renderUnknown(body, detection) {
 }
 
 function renderCoverPrompt(body, cover) {
+  if (cover.type === "add") {
+    renderAddPrompt(body, cover);
+    return;
+  }
+
   body.innerHTML = `
     <div class="detection-label">Cover Image Found</div>
     <div class="detected-title">${esc(cover.novelTitle)}</div>
@@ -285,6 +299,62 @@ function renderCoverPrompt(body, cover) {
       setTimeout(window.close, 800);
     } else {
       body.innerHTML = `<div class="state-offline">Failed to save cover.</div>`;
+    }
+  };
+
+  document.getElementById("btnDismissCover").onclick = () => {
+    chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
+    window.close();
+  };
+}
+
+// Novel page whose title isn't in the library yet — add it (with its cover)
+function renderAddPrompt(body, cover) {
+  body.innerHTML = `
+    <div class="detection-label">Novel Found</div>
+    <div class="detected-title">${esc(cover.title)}</div>
+    ${cover.coverUrl ? `
+    <div style="margin: 12px 0; text-align: center;">
+      <img
+        src="${esc(cover.coverUrl)}"
+        alt="Cover"
+        style="max-width: 120px; max-height: 180px; border-radius: 6px; border: 1px solid #2a2a35; object-fit: cover;"
+        onerror="this.style.display='none'"
+      />
+    </div>` : ""}
+    <div class="candidate-label" style="color:#555">Not in your library.</div>
+    <button class="btn-update" id="btnAdd" style="margin-top:12px">Add to Library</button>
+    <button class="btn-ignore" id="btnDismissCover" style="margin-top:8px">Ignore</button>
+  `;
+
+  document.getElementById("btnAdd").onclick = async () => {
+    try {
+      const res = await fetch(`${API}/quick-add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: cover.title, chapter_raw: "" }),
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        body.innerHTML = `<div class="state-offline">Error: ${esc(data.error)}</div>`;
+        return;
+      }
+
+      if (cover.coverUrl) {
+        await fetch(`${API}/cover`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ novel_id: data.id, cover_url: cover.coverUrl }),
+        });
+      }
+      await cacheMapping(cover.domain, cover.title, data.id);
+
+      chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
+      body.innerHTML = `<div class="success">✓ Added to library</div>`;
+      setTimeout(window.close, 800);
+    } catch {
+      body.innerHTML = `<div class="state-offline">Failed to connect to app.</div>`;
     }
   };
 

@@ -313,7 +313,7 @@ fn quick_add_novel(db_path: &str, payload: &QuickAddPayload) -> Result<i64, Stri
     
     conn.execute(
         "INSERT INTO novels (canonical_title, status, notes, cover_url)
-         VALUES (?1, 'reading', '', '')",
+         VALUES (?1, 'planned', '', '')",
         rusqlite::params![payload.title],
     ).map_err(|e| e.to_string())?;
     

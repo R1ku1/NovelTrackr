@@ -45,7 +45,18 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId }) {
     console.log("[Noveltrackr] cover matches:", matches);
 
     if (matches.length === 0) {
-      console.log("[Noveltrackr] no match found for cover, novel not in library");
+      // Not in the library — offer to add it (cover included) instead
+      console.log("[Noveltrackr] novel not in library, offering to add:", title);
+      await setCoverPending(tabId, {
+        title,
+        coverUrl,
+        domain,
+        type: "add",
+        tabId,
+      });
+
+      chrome.action.setBadgeText({ text: "+", tabId });
+      chrome.action.setBadgeBackgroundColor({ color: "#a78bfa", tabId });
       return;
     }
 

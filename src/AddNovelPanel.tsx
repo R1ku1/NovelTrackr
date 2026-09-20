@@ -32,7 +32,7 @@ interface Props {
 
 const EMPTY_FORM: NewNovelData = {
   canonical_title: "",
-  status: "reading",
+  status: "planned",
   current_chapter_raw: "",
   notes: "",
   cover_url: "",
