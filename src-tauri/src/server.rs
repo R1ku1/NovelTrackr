@@ -111,11 +111,23 @@ pub fn start_server(
     start_server_on(db_path, "127.0.0.1:39172");
 }
 
+/// Binding can fail (another process holds the port) — that must not take the app down
+fn bind_server(addr: &str) -> Result<Server, String> {
+    Server::http(addr).map_err(|e| e.to_string())
+}
+
 /// Same server on an arbitrary address (tests bind a throwaway port)
 pub fn start_server_on(db_path: String, addr: &str) {
     let addr = addr.to_string();
     std::thread::spawn(move || {
-        let server = Server::http(&addr).expect("Failed to start local server");
+        let server = match bind_server(&addr) {
+            Ok(server) => server,
+            Err(e) => {
+                // The extension simply can't connect; the library itself keeps working
+                eprintln!("[noveltrackr] local api unavailable on {}: {}", addr, e);
+                return;
+            }
+        };
         
         for mut request in server.incoming_requests() {
             let method = request.method().clone();
@@ -576,6 +588,21 @@ mod tests {
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
         (status, text)
+    }
+
+    #[test]
+    fn a_taken_port_is_reported_not_panicked() {
+        // Hold a port, then ask the server for it
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let taken = format!("127.0.0.1:{}", held.local_addr().unwrap().port());
+        assert!(bind_server(&taken).is_err(), "an occupied port must be reported, not panicked");
+
+        // And a free one still binds
+        let free = {
+            let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("127.0.0.1:{}", probe.local_addr().unwrap().port())
+        };
+        assert!(bind_server(&free).is_ok());
     }
 
     #[test]

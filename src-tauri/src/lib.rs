@@ -37,13 +37,14 @@ pub fn run() {
         },
     ];
 
-    let db_path = format!(
-        "{}/noveltrackr.db",
-        dirs::data_dir()
-            .unwrap()
-            .join("com.aweso.noveltrackr")
-            .to_string_lossy()
-    );
+    // Never panic at startup — fall back to the temp dir if the platform won't tell us
+    let data_dir = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
+
+    let db_path = data_dir
+        .join("com.aweso.noveltrackr")
+        .join("noveltrackr.db")
+        .to_string_lossy()
+        .to_string();
 
     server::start_server(db_path);
 
