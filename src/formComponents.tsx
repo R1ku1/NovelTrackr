@@ -13,6 +13,10 @@ export const STATUS_OPTIONS: { value: Status; label: string; color: string }[] =
 
 export const FONT = "'Georgia', 'Times New Roman', serif";
 
+// What a novel gets when nothing else is chosen. Mirrors the server's
+// DEFAULT_STATUS and migrations/001_init.sql.
+export const DEFAULT_STATUS: Status = "planned";
+
 // ── Field Label ───────────────────────────────────────────────────────────────
 export function FieldLabel({ text, required }: { text: string; required?: boolean }) {
   return (

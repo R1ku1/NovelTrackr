@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS novels (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   canonical_title TEXT NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'reading',
+  status      TEXT NOT NULL DEFAULT 'planned',
   notes       TEXT NOT NULL DEFAULT '',
   cover_url   TEXT NOT NULL DEFAULT '',
   created_at  DATETIME NOT NULL DEFAULT (datetime('now')),

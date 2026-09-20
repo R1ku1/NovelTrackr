@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   type Status,
+  DEFAULT_STATUS,
   FieldLabel, TextInput, TextArea,
   StatusPicker, AliasInput,
   PanelShell, PanelHeader, PanelFooter,
@@ -32,7 +33,7 @@ interface Props {
 
 const EMPTY_FORM: NewNovelData = {
   canonical_title: "",
-  status: "planned",
+  status: DEFAULT_STATUS,
   current_chapter_raw: "",
   notes: "",
   cover_url: "",

@@ -11,6 +11,10 @@ const API_HEADER_VALUE: &str = "1";
 /// Same threshold as the extension and AddNovelPanel.findDuplicates
 const DUPLICATE_THRESHOLD: f64 = 0.75;
 
+/// Status a novel gets when the app adds it for you. Must match
+/// migrations/001_init.sql and formComponents.DEFAULT_STATUS.
+const DEFAULT_STATUS: &str = "planned";
+
 fn is_api_header(name: &str, value: &str) -> bool {
     name.eq_ignore_ascii_case(API_HEADER) && value == API_HEADER_VALUE
 }
@@ -477,8 +481,11 @@ fn quick_add_novel(db_path: &str, payload: &QuickAddPayload) -> Result<QuickAddR
     }
 
     conn.execute(
-        "INSERT INTO novels (canonical_title, status, notes, cover_url)
-         VALUES (?1, 'planned', '', '')",
+        &format!(
+            "INSERT INTO novels (canonical_title, status, notes, cover_url)
+             VALUES (?1, '{}', '', '')",
+            DEFAULT_STATUS
+        ),
         rusqlite::params![payload.title],
     ).map_err(|e| e.to_string())?;
     
@@ -603,6 +610,28 @@ mod tests {
             format!("127.0.0.1:{}", probe.local_addr().unwrap().port())
         };
         assert!(bind_server(&free).is_ok());
+    }
+
+    /// The app, the schema default and the fresh-install migrations must agree.
+    /// Also proves all three migration files still apply cleanly.
+    #[test]
+    fn fresh_database_defaults_to_the_app_status() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!("../migrations/001_init.sql")).unwrap();
+        conn.execute_batch(include_str!("../migrations/002_sources_unique.sql")).unwrap();
+        conn.execute_batch(include_str!("../migrations/003_aliases_index.sql")).unwrap();
+
+        // Insert without naming a status and see what the schema picks
+        conn.execute("INSERT INTO novels (canonical_title) VALUES ('Untitled')", [])
+            .unwrap();
+
+        let status: String = conn
+            .query_row("SELECT status FROM novels", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            status, DEFAULT_STATUS,
+            "schema default must match the status the app writes"
+        );
     }
 
     #[test]
