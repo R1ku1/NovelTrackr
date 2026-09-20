@@ -696,7 +696,7 @@ export default function App() {
   const [addPanelOpen, setAddPanelOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<EditNovelData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
 
   const filtered = novels
     .filter((n) => {
@@ -744,12 +744,25 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, []);
+  // Transient status line in the header. Every write path reports through this,
+  // so a failed save never looks like a successful one.
+  function notify(text: string, error = false) {
+    setNotice({ text, error });
+    window.setTimeout(() => setNotice((n) => (n?.text === text ? null : n)), 5000);
+  }
+
   async function handleQuickUpdate(id: number, chapterRaw: string) {
-  await updateProgress(id, chapterRaw);
-  const updated = await getAllNovels();
-  setNovels(updated as Novel[]);
-  setQuickUpdateTarget(null);
-}
+    try {
+      await updateProgress(id, chapterRaw);
+      const updated = await getAllNovels();
+      setNovels(updated as Novel[]);
+      setQuickUpdateTarget(null);
+    } catch (e) {
+      // Leave the modal open so the typed chapter isn't lost
+      console.error("progress update failed:", e);
+      notify("Couldn't save that chapter — nothing was written.", true);
+    }
+  }
 
   return (
     <div style={styles.app}>
@@ -763,27 +776,36 @@ export default function App() {
   try {
     const saved = await exportToFile();
     console.log(saved ? "exported successfully" : "user cancelled");
-    setNotice(saved
-      ? `Exported to file (novels, progress, aliases, sources, site links)`
+    notify(saved
+      ? "Exported to file (novels, progress, aliases, sources, site links)"
       : "Export cancelled");
   } catch (e) {
     console.error("export failed:", e);
-    setNotice("Export failed — see the console for details");
+    notify("Export failed — see the console for details", true);
   }
-  // auto-dismiss, without clobbering a newer message
-  window.setTimeout(() => setNotice((n) => (n?.startsWith("Export") ? null : n)), 5000);
 }}>
   Export
 </button>
-        {notice && <span style={styles.notice}>{notice}</span>}
+        {notice && (
+          <span style={{ ...styles.notice, color: notice.error ? "#f87171" : "#8a8a96" }}>
+            {notice.text}
+          </span>
+        )}
           <AddNovelPanel
             open={addPanelOpen}
             onClose={() => setAddPanelOpen(false)}
             existingNovels={novels.map((n) => ({ id: n.id, title: n.canonical_title, aliases: n.aliases }))}
             onSubmit={async (data) => {
-              await addNovel(data);
-              const updated = await getAllNovels();
-              setNovels(updated);
+              try {
+                await addNovel(data);
+                const updated = await getAllNovels();
+                setNovels(updated);
+                notify(`Added ${data.canonical_title}`);
+              } catch (e) {
+                console.error("add failed:", e);
+                notify("Couldn't add that novel — nothing was written.", true);
+                throw e; // keep the panel open with the form intact
+              }
             }}
           />
           <EditNovelPanel
@@ -792,25 +814,39 @@ export default function App() {
             onSave={async (data: EditNovelData) => {
               // The panel edits a snapshot. If the extension wrote a newer chapter while
               // it was open, keep that instead of reverting real progress to stale data.
-              const before = await getAllNovels();
-              const live = before.find((n) => n.id === data.id) as Novel | undefined;
-              const chapterUntouched = !editTarget
-                || data.current_chapter_raw === editTarget.current_chapter_raw;
+              try {
+                const before = await getAllNovels();
+                const live = before.find((n) => n.id === data.id) as Novel | undefined;
+                const chapterUntouched = !editTarget
+                  || data.current_chapter_raw === editTarget.current_chapter_raw;
 
-              const payload = chapterUntouched && live
-                ? { ...data, current_chapter_raw: live.current_chapter_raw ?? "" }
-                : data;
+                const payload = chapterUntouched && live
+                  ? { ...data, current_chapter_raw: live.current_chapter_raw ?? "" }
+                  : data;
 
-              await updateNovel(payload);
-              const updated = await getAllNovels();
-              setNovels(updated as Novel[]);
-              setEditTarget(null);
+                await updateNovel(payload);
+                const updated = await getAllNovels();
+                setNovels(updated as Novel[]);
+                setEditTarget(null);
+                notify("Changes saved");
+              } catch (e) {
+                console.error("save failed:", e);
+                notify("Couldn't save changes — nothing was written.", true);
+                throw e; // leave the panel open so the edits aren't lost
+              }
             }}
             onDelete={async (id: number) => {
+              try {
                 await deleteNovel(id);
                 const updated = await getAllNovels();
                 setNovels(updated as Novel[]);
                 setEditTarget(null);
+                notify("Removed from library");
+              } catch (e) {
+                console.error("delete failed:", e);
+                notify("Couldn't remove that novel — nothing was deleted.", true);
+                throw e;
+              }
             }}
           />
         </div>

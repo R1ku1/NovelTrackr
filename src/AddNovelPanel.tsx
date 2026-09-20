@@ -27,7 +27,7 @@ interface ExistingNovel {
 interface Props {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: NewNovelData) => void;
+  onSubmit: (data: NewNovelData) => Promise<void>;
   existingNovels: ExistingNovel[];
 }
 
@@ -257,7 +257,7 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
     }
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!form.canonical_title.trim()) {
       setErrors({ title: "Title is required" });
       return;
@@ -268,14 +268,18 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
       return;
     }
 
-    onSubmit({
-      ...form,
-      canonical_title: form.canonical_title.trim(),
-      current_chapter_raw: form.current_chapter_raw.trim(),
-      cover_url: form.cover_url.trim(),
-      notes: form.notes.trim(),
-    });
-    onClose();
+    try {
+      await onSubmit({
+        ...form,
+        canonical_title: form.canonical_title.trim(),
+        current_chapter_raw: form.current_chapter_raw.trim(),
+        cover_url: form.cover_url.trim(),
+        notes: form.notes.trim(),
+      });
+      onClose();
+    } catch {
+      // The app reported the failure — keep the form so nothing has to be retyped
+    }
   }
 
   if (!open && !visible) return null;

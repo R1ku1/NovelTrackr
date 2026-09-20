@@ -31,8 +31,8 @@ export interface EditNovelData {
 interface Props {
   novel: EditNovelData | null; // null = closed
   onClose: () => void;
-  onSave: (data: EditNovelData) => void;
-  onDelete: (id: number) => void;
+  onSave: (data: EditNovelData) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
 }
 function CoverPreview({ url }: { url: string }) {
   const [broken, setBroken] = useState(false);
@@ -185,28 +185,36 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
     if (key === "canonical_title") setErrors({});
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!form) return;
     if (!form.canonical_title.trim()) {
       setErrors({ title: "Title is required" });
       return;
     }
-    onSave({
-      ...form,
-      canonical_title: form.canonical_title.trim(),
-      current_chapter_raw: form.current_chapter_raw.trim(),
-      cover_url: form.cover_url.trim(),
-      notes: form.notes.trim(),
-      last_seen_url: form.last_seen_url.trim(),
-      updated_at: new Date().toISOString(),
-    });
-    onClose();
+    try {
+      await onSave({
+        ...form,
+        canonical_title: form.canonical_title.trim(),
+        current_chapter_raw: form.current_chapter_raw.trim(),
+        cover_url: form.cover_url.trim(),
+        notes: form.notes.trim(),
+        last_seen_url: form.last_seen_url.trim(),
+        updated_at: new Date().toISOString(),
+      });
+      onClose();
+    } catch {
+      // The app already reported the failure — stay open with the edits intact
+    }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!form) return;
-    onDelete(form.id);
-    onClose();
+    try {
+      await onDelete(form.id);
+      onClose();
+    } catch {
+      // Nothing was deleted; keep the panel so it can be retried
+    }
   }
 
   const open = novel !== null;
