@@ -274,7 +274,63 @@ function makeDom() {
   console.log("\u2713 popup.js reports a failed cover write instead of a bare success");
 }
 
-// ── 7. selector guard: NovelUpdates markup matches what content.js looks for ──
+// ── 7. content.js: one pending cover check, never for a page you already left ─
+{
+  const cover = {
+    src: "https://cdn.novelupdates.com/images/2026/01/Editors-Survival-Guide.jpg",
+    complete: true,
+    naturalWidth: 400,
+    naturalHeight: 600,
+  };
+  const location = {
+    href: "https://www.novelupdates.com/series/editors-survival-guide/",
+    hostname: "www.novelupdates.com",
+  };
+
+  const timers = [];
+  const chrome = makeChrome({});
+  const document = {
+    title: "Editor\u2019s Survival Guide - Novel Updates",
+    querySelector: (sel) => (sel.includes("img") ? cover : null),
+    querySelectorAll: () => [cover],
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: (id) => { if (id !== null && id !== undefined) timers[id] = null; },
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  assert.equal(timers.length, 1, "loading a page must schedule exactly one cover check");
+
+  // A second run() (turbo/pjax navigation) must replace the pending timer, not add another
+  ctx.run();
+  assert.equal(timers[0], null, "re-running must cancel the previous timer");
+  assert.equal(timers.filter(Boolean).length, 1, "only one cover check may be pending");
+
+  // Firing it finds the cover and reports this page once
+  timers[1]();
+  const sent = chrome.calls.messages;
+  assert.equal(sent.length, 1, "a found cover must be sent once");
+  assert.equal(sent[0].type, "COVER_DETECTED");
+  assert.equal(sent[0].payload.coverUrl, cover.src);
+  assert.equal(sent[0].payload.domain, "novelupdates.com");
+
+  // If the page navigates in-page while we wait, the stale title must not be sent
+  ctx.run();
+  location.href = "https://www.novelupdates.com/series/something-else/";
+  timers[2]();
+  assert.equal(chrome.calls.messages.length, 1, "a page change must drop the pending detection");
+
+  console.log("\u2713 content.js keeps one pending cover check and drops it when the page changes");
+}
+
+// ── 8. selector guard: NovelUpdates markup matches what content.js looks for ──
 {
   const ref = path.join(dir, "..", "novelupdate.txt");
   if (existsSync(ref)) {

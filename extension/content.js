@@ -130,6 +130,43 @@ function extractCoverImage() {
   return null;
 }
 
+// Only one cover extraction may be pending — re-running run() (turbo/pjax, or a
+// second load event) must not leave a stale timer pointing at the previous page.
+let coverTimer = null;
+
+function scheduleCoverDetection(indexTitle) {
+  clearTimeout(coverTimer);
+
+  const scheduledHref = window.location.href;
+
+  coverTimer = setTimeout(() => {
+    coverTimer = null;
+
+    // The site navigated in-page while we waited; the title above is stale now
+    if (window.location.href !== scheduledHref) {
+      console.log("[Noveltrackr] page changed before cover extraction, skipping");
+      return;
+    }
+
+    const coverUrl = extractCoverImage();
+    if (!coverUrl) {
+      console.log("[Noveltrackr] no cover image found on index page");
+      return;
+    }
+
+    console.log("[Noveltrackr] sending COVER_DETECTED:", indexTitle, coverUrl);
+
+    chrome.runtime.sendMessage({
+      type: "COVER_DETECTED",
+      payload: {
+        title: indexTitle,
+        coverUrl,
+        domain: window.location.hostname.replace("www.", ""),
+      }
+    }).catch((e) => console.log("[Noveltrackr] cover message failed:", e));
+  }, 1000);
+}
+
 function run() {
   console.log("[Noveltrackr] run() called on:", window.location.href);
 
@@ -185,24 +222,7 @@ function run() {
 
   console.log("[Noveltrackr] index page, title:", indexTitle);
 
-  setTimeout(() => {
-    const coverUrl = extractCoverImage();
-    if (!coverUrl) {
-      console.log("[Noveltrackr] no cover image found on index page");
-      return;
-    }
-
-    console.log("[Noveltrackr] sending COVER_DETECTED:", indexTitle, coverUrl);
-
-    chrome.runtime.sendMessage({
-      type: "COVER_DETECTED",
-      payload: {
-        title: indexTitle,
-        coverUrl,
-        domain: window.location.hostname.replace("www.", ""),
-      }
-    }).catch((e) => console.log("[Noveltrackr] cover message failed:", e));
-  }, 1000);
+  scheduleCoverDetection(indexTitle);
 }
 
 // Run on load, also re-run on navigation for SPA sites
