@@ -825,7 +825,7 @@ export default function App() {
     const saved = await exportToFile();
     console.log(saved ? "exported successfully" : "user cancelled");
     notify(saved
-      ? "Exported to file (novels, progress, aliases, sources, site links)"
+      ? "Exported to file (novels, progress, aliases, sources, site links, reading log)"
       : "Export cancelled");
   } catch (e) {
     console.error("export failed:", e);

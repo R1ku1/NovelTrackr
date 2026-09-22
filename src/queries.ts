@@ -324,15 +324,17 @@ export async function exportLibrary(): Promise<string> {
   const aliases = await db.select<any[]>(`SELECT * FROM aliases`);
   const sources = await db.select<any[]>(`SELECT * FROM sources`);
   const siteMappings = await db.select<any[]>(`SELECT * FROM site_mappings`);
+  const readingLog = await db.select<any[]>(`SELECT * FROM reading_log`);
 
   const data = {
     exported_at: new Date().toISOString(),
-    version: 2,
+    version: 3,
     novels,
     progress,
     aliases,
     sources,
     site_mappings: siteMappings,
+    reading_log: readingLog,
   };
 
   return JSON.stringify(data, null, 2);
