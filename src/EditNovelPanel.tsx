@@ -8,6 +8,7 @@ import {
   TextArea,
   StatusPicker,
   ChipInput,
+  CoverImage,
   PanelShell,
   PanelHeader,
   PanelFooter,
@@ -38,37 +39,6 @@ interface Props {
   onSave: (data: EditNovelData) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
 }
-function CoverPreview({ url }: { url: string }) {
-  const [broken, setBroken] = useState(false);
-
-  // Reset broken state when URL changes
-  useEffect(() => {
-    setBroken(false);
-  }, [url]);
-
-  if (broken) {
-    return (
-      <span style={{
-        fontSize: 10,
-        color: "#333",
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-      }}>
-        No Cover
-      </span>
-    );
-  }
-
-  return (
-    <img
-      src={url}
-      alt="Cover preview"
-      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-      onError={() => setBroken(true)}
-    />
-  );
-}
-
 // ── Delete Confirmation ───────────────────────────────────────────────────────
 function DeleteConfirm({
   title,
@@ -181,7 +151,7 @@ function MiniBtn({ label, title, onClick }: { label: string; title: string; onCl
         letterSpacing: "0.06em",
         fontFamily: FONT,
         cursor: "pointer",
-        transition: "all 0.15s",
+        transition: "border-color 0.15s, color 0.15s",
         whiteSpace: "nowrap",
       }}
     >
@@ -263,7 +233,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
   if (!open && !visible) return null;
 
   return (
-    <PanelShell visible={visible} onClose={onClose}>
+    <PanelShell visible={visible} onClose={onClose} label="Edit novel" closeOnEscape={!dirty}>
       {/* Delete confirmation overlay — sits inside the panel */}
       {confirmDelete && form && (
         <DeleteConfirm
@@ -357,7 +327,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
             <ChipInput
               values={form.aliases}
               onChange={(v) => set("aliases", v)}
-              placeholder="e.g. TBATE, The Beginning..."
+              placeholder="e.g. TBATE, The Beginning…"
               hint="Press Enter or comma to add. Searched alongside the main title."
             />
           </div>
@@ -415,14 +385,14 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
                 alignItems: "center",
                 justifyContent: "center",
               }}>
-                <CoverPreview url={form.cover_url} />
+                <CoverImage url={form.cover_url} alt="Cover preview" />
               </div>
             )}
 
             <TextInput
               value={form.cover_url}
               onChange={(v) => set("cover_url", v)}
-              placeholder="https://..."
+              placeholder="https://…"
             />
             <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
               Paste any image URL. Right-click a cover → Copy image address.
@@ -435,7 +405,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
             <TextInput
               value={form.last_seen_url}
               onChange={(v) => set("last_seen_url", v)}
-              placeholder="https://..."
+              placeholder="https://…"
             />
             <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
               The website where you read this novel. Updated automatically by the extension.
@@ -448,7 +418,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
             <TextArea
               value={form.notes}
               onChange={(v) => set("notes", v)}
-              placeholder="Anything you want to remember..."
+              placeholder="Anything you want to remember…"
               rows={4}
             />
           </div>

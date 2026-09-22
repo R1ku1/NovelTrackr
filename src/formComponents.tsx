@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type Status = "reading" | "paused" | "completed" | "dropped" | "planned";
@@ -35,6 +35,47 @@ export function FieldLabel({ text, required }: { text: string; required?: boolea
   );
 }
 
+// ── Cover Image ───────────────────────────────────────────────────────────────
+// A remote cover can be missing or 404 at any time, so the broken state is a
+// real state, not a DOM side effect. Passing no url (or an empty one) renders the
+// placeholder instead of an empty <img>.
+const coverImg: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+  display: "block",
+};
+
+const coverPlaceholder: React.CSSProperties = {
+  fontSize: 11,
+  color: "#333",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
+export function CoverImage({
+  url,
+  alt,
+  placeholder = true,
+}: {
+  url: string | null;
+  alt: string;
+  placeholder?: boolean;
+}) {
+  const [broken, setBroken] = useState(false);
+
+  // A new URL deserves a fresh attempt
+  useEffect(() => {
+    setBroken(false);
+  }, [url]);
+
+  if (!url || broken) {
+    return placeholder ? <span style={coverPlaceholder}>No Cover</span> : null;
+  }
+
+  return <img src={url} alt={alt} style={coverImg} onError={() => setBroken(true)} />;
+}
+
 // ── Text Input ────────────────────────────────────────────────────────────────
 export function TextInput({
   value,
@@ -67,7 +108,6 @@ export function TextInput({
         padding: "9px 12px",
         fontSize: 14,
         fontFamily: FONT,
-        outline: "none",
         boxSizing: "border-box",
         transition: "border-color 0.15s",
       }}
@@ -105,7 +145,6 @@ export function TextArea({
         padding: "9px 12px",
         fontSize: 13,
         fontFamily: FONT,
-        outline: "none",
         boxSizing: "border-box",
         resize: "vertical",
         lineHeight: 1.5,
@@ -141,7 +180,7 @@ export function StatusPicker({
               letterSpacing: "0.06em",
               cursor: "pointer",
               fontFamily: FONT,
-              transition: "all 0.15s",
+              transition: "background 0.15s, border-color 0.15s, color 0.15s",
             }}
           >
             {opt.label}
@@ -249,7 +288,6 @@ export function ChipInput({
             padding: "8px 12px",
             fontSize: 13,
             fontFamily: FONT,
-            outline: "none",
             transition: "border-color 0.15s",
           }}
         />
@@ -303,16 +341,32 @@ export function ChipInput({
 export function PanelShell({
   visible,
   onClose,
+  label,
+  closeOnEscape = true,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
+  /** Names the sheet for assistive tech — pass the same words the header shows. */
+  label: string;
+  /** Turn off while there are unsaved edits, so Escape can't discard them. */
+  closeOnEscape?: boolean;
   children: React.ReactNode;
 }) {
+  useEffect(() => {
+    if (!visible || !closeOnEscape) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [visible, closeOnEscape, onClose]);
+
   return (
     <>
       <div
         onClick={onClose}
+        aria-hidden="true"
         style={{
           position: "fixed",
           inset: 0,
@@ -324,12 +378,16 @@ export function PanelShell({
         }}
       />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
         style={{
           position: "fixed",
           top: 0,
           right: 0,
           height: "100%",
           width: 420,
+          maxWidth: "100%",
           background: "#13131a",
           borderLeft: "1px solid #2a2a35",
           zIndex: 60,
@@ -337,6 +395,7 @@ export function PanelShell({
           flexDirection: "column",
           transform: visible ? "translateX(0)" : "translateX(100%)",
           transition: "transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)",
+          overscrollBehavior: "contain",
         }}
       >
         {children}
@@ -376,7 +435,7 @@ export function PanelHeader({
         }}>
           {eyebrow}
         </div>
-        <div style={{
+        <h2 style={{
           fontSize: 17,
           fontWeight: 700,
           fontStyle: "italic",
@@ -387,12 +446,13 @@ export function PanelHeader({
           whiteSpace: "nowrap",
         }}>
           {title}
-        </div>
+        </h2>
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         {actions}
         <button
           onClick={onClose}
+          aria-label="Close panel"
           style={{
             background: "none",
             border: "1px solid #2a2a35",
@@ -434,11 +494,14 @@ export function PanelFooter({ children }: { children: React.ReactNode }) {
 
 // ── Panel Button variants ─────────────────────────────────────────────────────
 export function BtnPrimary({ label, onClick }: { label: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
   return (
     <button
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        background: "#e8e6e1",
+        background: hovered ? "#ffffff" : "#e8e6e1",
         border: "none",
         color: "#0f0f13",
         padding: "9px 22px",
@@ -448,6 +511,7 @@ export function BtnPrimary({ label, onClick }: { label: string; onClick: () => v
         letterSpacing: "0.06em",
         borderRadius: 20,
         cursor: "pointer",
+        transition: "background 0.15s",
       }}
     >
       {label}
@@ -456,19 +520,23 @@ export function BtnPrimary({ label, onClick }: { label: string; onClick: () => v
 }
 
 export function BtnSecondary({ label, onClick }: { label: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
   return (
     <button
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         background: "transparent",
-        border: "1px solid #2a2a35",
-        color: "#666",
+        border: `1px solid ${hovered ? "#3a3a50" : "#2a2a35"}`,
+        color: hovered ? "#b0b0b8" : "#666",
         padding: "9px 20px",
         fontSize: 12,
         fontFamily: FONT,
         letterSpacing: "0.05em",
         borderRadius: 20,
         cursor: "pointer",
+        transition: "border-color 0.15s, color 0.15s",
       }}
     >
       {label}
@@ -493,7 +561,7 @@ export function BtnDanger({ label, onClick }: { label: string; onClick: () => vo
         letterSpacing: "0.05em",
         borderRadius: 20,
         cursor: "pointer",
-        transition: "all 0.15s",
+        transition: "background 0.15s, border-color 0.15s, color 0.15s",
         marginRight: "auto",
       }}
     >

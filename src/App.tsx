@@ -4,6 +4,7 @@ import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
 import StatsPanel from "./StatsPanel";
 import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
 import { exportToFile } from "./queries";
+import { CoverImage } from "./formComponents";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -65,11 +66,11 @@ type SortKey = "updated" | "title" | "chapter";
 type ViewMode = "list" | "grid" | "compact";
 
 // ── Dynamic Style Helpers ────────────────────────────────────────────────────
-function getNavBtnStyle(active: boolean): React.CSSProperties {
+function getNavBtnStyle(active: boolean, hovered: boolean): React.CSSProperties {
   return {
     background: "transparent",
     border: "none",
-    color: active ? "#e8e6e1" : "#555",
+    color: active ? "#e8e6e1" : hovered ? "#9a9aa4" : "#555",
     padding: "6px 10px",
     fontSize: 13,
     fontFamily: "'Georgia', 'Times New Roman', serif",
@@ -141,7 +142,44 @@ function getGridCardStyle(hovered: boolean): React.CSSProperties {
   };
 }
 
+// The card title doubles as the edit button, so it gets an affordance of its own
+// on top of the card's highlight
+function getGridTitleBtnStyle(hovered: boolean): React.CSSProperties {
+  return {
+    ...styles.gridTitleBtn,
+    textDecoration: hovered ? "underline" : "none",
+  };
+}
+
 // ── Inline Styles ────────────────────────────────────────────────────────────
+// The add action lives on the library itself — one round button, always the
+// same corner, out of the way of the toolbar
+function getFabStyle(hovered: boolean): React.CSSProperties {
+  return {
+    position: "fixed",
+    right: 32,
+    bottom: 32,
+    width: 52,
+    height: 52,
+    borderRadius: "50%",
+    background: hovered ? "#ffffff" : "#e8e6e1",
+    color: "#0f0f13",
+    border: "none",
+    fontSize: 24,
+    fontWeight: 400,
+    lineHeight: 1,
+    paddingBottom: 2,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: hovered ? "0 8px 24px rgba(0,0,0,0.6)" : "0 4px 16px rgba(0,0,0,0.45)",
+    transition: "background 0.15s, box-shadow 0.15s, transform 0.15s",
+    transform: hovered ? "scale(1.05)" : "scale(1)",
+    zIndex: 40,
+  };
+}
+
 const styles: Record<string, React.CSSProperties> = {
   app: {
     height: "100vh",
@@ -163,30 +201,14 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
     zIndex: 10,
   },
-  logo: {
-    fontSize: 20,
-    fontWeight: 700,
-    letterSpacing: "0.06em",
-    fontStyle: "italic",
-    color: "#e8e6e1",
-    opacity: 0.92,
-  },
   headerRight: {
     display: "flex",
     alignItems: "center",
     gap: 10,
   },
-  addBtn: {
-    background: "#e8e6e1",
-    color: "#0f0f13",
-    border: "none",
-    padding: "8px 18px",
-    fontSize: 13,
-    fontFamily: "inherit",
-    fontWeight: 700,
-    letterSpacing: "0.06em",
-    cursor: "pointer",
-    borderRadius: 20,
+  nav: {
+    display: "flex",
+    gap: 4,
   },
   notice: {
     fontSize: 12,
@@ -234,7 +256,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "8px 10px 8px 34px",
     fontSize: 14,
     fontFamily: "inherit",
-    outline: "none",
     boxSizing: "border-box",
     borderRadius: 8,
   },
@@ -265,7 +286,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "8px 10px",
     fontSize: 13,
     fontFamily: "inherit",
-    outline: "none",
     cursor: "pointer",
     letterSpacing: "0.03em",
     borderRadius: 8,
@@ -280,11 +300,12 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: "0.1em",
     color: "#555",
     textTransform: "uppercase",
+    fontVariantNumeric: "tabular-nums",
     borderBottom: "1px solid #1a1a22",
     flexShrink: 0,
   },
   main: {
-    padding: "20px 28px",
+    padding: "20px 28px 96px",
     flex: 1,
     overflowY: "auto",
     overflowX: "hidden"
@@ -293,13 +314,6 @@ const styles: Record<string, React.CSSProperties> = {
   sourceCell: {
     fontSize: 12,
     whiteSpace: "nowrap" as const,
-  },
-  sourceLink: {
-    color: "#4a6fa5",
-    textDecoration: "none",
-    fontSize: 12,
-    fontStyle: "italic",
-    cursor: "pointer",
   },
   listCover: {
     width: 32,
@@ -312,12 +326,6 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-  },
-  listCoverImg: {
-    width: "100%",
-    height: "100%",
-    objectFit: "cover" as const,
-    display: "block",
   },
   // ── List View ──
   listTable: {
@@ -374,6 +382,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#999",
     fontSize: 14,
     fontFamily: "inherit",
+    fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
   },
   // ── Grid View ──
@@ -396,27 +405,22 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: "uppercase",
     border: "1px solid #1e1e28",
     borderRadius: 6,
-    overflow: "hidden",  // ← add this so image doesn't bleed outside radius
+    overflow: "hidden",
     position: "relative" as const,
   },
-  gridCoverImg: {
-    width: "100%",
-    height: "100%",
-    objectFit: "cover" as const,
-    display: "block",
-  },
-  gridCoverPlaceholder: {
-    fontSize: 11,
-    color: "#333",
-    letterSpacing: "0.08em",
-    textTransform: "uppercase" as const,
-  },
-  gridTitle: {
+  gridTitleBtn: {
+    // A real button wearing the title's clothes — resets every button default
+    background: "none",
+    border: "none",
+    padding: 0,
+    textAlign: "left" as const,
+    fontFamily: "inherit",
     fontSize: 13,
     fontWeight: 700,
     color: "#ddd",
     lineHeight: 1.3,
     letterSpacing: "0.02em",
+    cursor: "pointer",
   },
   gridMeta: {
     fontSize: 12,
@@ -469,6 +473,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     gap: 16,
     borderRadius: 14,
+    overscrollBehavior: "contain",
   },
   modalTitle: {
     fontSize: 11,
@@ -496,7 +501,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "10px 12px",
     fontSize: 14,
     fontFamily: "inherit",
-    outline: "none",
     width: "100%",
     boxSizing: "border-box",
     borderRadius: 8,
@@ -536,9 +540,32 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     letterSpacing: "0.06em",
   },
+  emptyHint: {
+    maxWidth: 400,
+    margin: "10px auto 0",
+    fontSize: 12,
+    lineHeight: 1.6,
+    letterSpacing: "0.02em",
+    color: "#3a3a45",
+  },
 };
 
 // ── Update Button ─────────────────────────────────────────────────────────────
+function NavButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={getNavBtnStyle(active, hovered)}
+    >
+      {label}
+    </button>
+  );
+}
+
 function UpdateButton({ onClick }: { onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
   return (
@@ -556,7 +583,7 @@ function UpdateButton({ onClick }: { onClick: () => void }) {
         fontFamily: "inherit",
         letterSpacing: "0.06em",
         borderRadius: 6,
-        transition: "all 0.15s",
+        transition: "background 0.15s, border-color 0.15s, color 0.15s",
         whiteSpace: "nowrap",
       }}
     >
@@ -577,9 +604,24 @@ function QuickUpdateModal({
 }) {
   const [value, setValue] = useState(novel.current_chapter_raw ?? "");
 
+  // Escape has to close this even when focus has wandered off the input
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   return (
     <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Update progress"
+        style={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div>
           <div style={styles.modalTitle}>Update Progress</div>
           <div style={styles.modalNovel}>{novel.canonical_title}</div>
@@ -594,10 +636,10 @@ function QuickUpdateModal({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="e.g. Chapter 222"
+          aria-label="Current chapter"
           autoFocus
           onKeyDown={(e) => {
             if (e.key === "Enter") onConfirm(novel.id, value);
-            if (e.key === "Escape") onClose();
           }}
         />
         <div style={styles.modalActions}>
@@ -612,6 +654,46 @@ function QuickUpdateModal({
 }
 
 // ── List Row ──────────────────────────────────────────────────────────────────
+// ── Source Link ───────────────────────────────────────────────────────────────
+// Opens in the OS browser — the app window must never navigate away from itself
+function SourceLink({ url }: { url: string }) {
+  const [hovered, setHovered] = useState(false);
+
+  const host = (() => {
+    try {
+      return new URL(url).hostname.replace("www.", "");
+    } catch {
+      return url;
+    }
+  })();
+
+  return (
+    <a
+      href={url}
+      title={url}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openUrl(url).catch((err) => {
+          console.error("openUrl failed:", err);
+        });
+      }}
+      style={{
+        color: hovered ? "#6f97d1" : "#4a6fa5",
+        textDecoration: "none",
+        fontSize: 12,
+        fontStyle: "italic",
+        cursor: "pointer",
+        transition: "color 0.15s",
+      }}
+    >
+      {host}
+    </a>
+  );
+}
+
 function ListRow({
   novel,
   onQuickUpdate,
@@ -629,21 +711,21 @@ function ListRow({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        // Only when the row itself holds focus — Enter on the + Update button or
+        // the source link inside must not also open the edit panel
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
     >
       <td style={{ ...styles.td, ...styles.titleCell }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={styles.listCover}>
-            {novel.cover_url
-              ? <img
-                  src={novel.cover_url}
-                  alt=""
-                  style={styles.listCoverImg}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
-              : null
-            }
+            <CoverImage url={novel.cover_url} alt="" placeholder={false} />
           </div>
           <div>
             {novel.canonical_title}
@@ -665,23 +747,7 @@ function ListRow({
       </td>
       <td style={{ ...styles.td, ...styles.sourceCell }}>
         {novel.last_seen_url
-          ? <span
-              style={styles.sourceLink}
-              onClick={(e) => {
-                e.stopPropagation();
-                openUrl(novel.last_seen_url!).catch((err) => {
-                  console.error("openUrl failed:", err);
-                });
-              }}
-            >
-              {(() => {
-                try {
-                  return new URL(novel.last_seen_url!).hostname.replace("www.", "");
-                } catch {
-                  return novel.last_seen_url;
-                }
-              })()}
-            </span>
+          ? <SourceLink url={novel.last_seen_url} />
           : <span style={{ color: "#333" }}>—</span>
         }
       </td>
@@ -712,27 +778,19 @@ function GridCard({
       onClick={onClick}
     >
       <div style={styles.gridCover}>
-        {novel.cover_url
-          ? <img
-              src={novel.cover_url}
-              alt={novel.canonical_title}
-              style={styles.gridCoverImg}
-              onError={(e) => {
-                // If image fails to load, show placeholder
-                (e.target as HTMLImageElement).style.display = "none";
-                const parent = (e.target as HTMLImageElement).parentElement;
-                if (parent) {
-                  const placeholder = document.createElement("span");
-                  placeholder.textContent = "No Cover";
-                  placeholder.style.cssText = "font-size:11px;color:#333;letter-spacing:0.08em;text-transform:uppercase;";
-                  parent.appendChild(placeholder);
-                }
-              }}
-            />
-          : <span style={styles.gridCoverPlaceholder}>No Cover</span>
-        }
+        <CoverImage url={novel.cover_url} alt="" />
       </div>
-      <div style={styles.gridTitle}>{novel.canonical_title}</div>
+      {/* The title is the card's keyboard path — clicking the card is a mouse shortcut */}
+      <button
+        style={getGridTitleBtnStyle(hovered)}
+        aria-label={`Edit ${novel.canonical_title}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+      >
+        {novel.canonical_title}
+      </button>
       {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
       <TagChips tags={novel.tags} />
       <span style={getStatusBadgeStyle(novel.status)}>
@@ -749,6 +807,25 @@ function GridCard({
 }
 
 // ── Main App ──────────────────────────────────────────────────────────────────
+// ── Add Button (floating) ─────────────────────────────────────────────────────
+// The library's own action, parked in the corner instead of competing with the
+// nav for header space
+function AddButton({ onClick }: { onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Add novel"
+      title="Add a novel"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={getFabStyle(hovered)}
+    >
+      +
+    </button>
+  );
+}
+
 export default function App() {
   const [novels, setNovels] = useState<Novel[]>([]);
   
@@ -816,6 +893,19 @@ export default function App() {
     window.setTimeout(() => setNotice((n) => (n?.text === text ? null : n)), 5000);
   }
 
+  // Export lives on the stats page — its outcome still reports through the header
+  async function handleExport() {
+    try {
+      const saved = await exportToFile();
+      notify(saved
+        ? "Exported to file — novels, progress, aliases, sources, site links, reading log"
+        : "Export cancelled — nothing was written");
+    } catch (e) {
+      console.error("export failed:", e);
+      notify("Export failed — see the console for details", true);
+    }
+  }
+
   async function handleQuickUpdate(id: number, chapterRaw: string) {
     try {
       await updateProgress(id, chapterRaw);
@@ -832,124 +922,111 @@ export default function App() {
   return (
     <div style={styles.app}>
       <header style={styles.header}>
-        <span style={styles.logo}>Noveltrackr</span>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button style={getNavBtnStyle(page === "library")} onClick={() => setPage("library")}>
-            Library
-          </button>
-          <button style={getNavBtnStyle(page === "stats")} onClick={() => setPage("stats")}>
-            Stats
-          </button>
-        </div>
+        <nav style={styles.nav}>
+          <NavButton label="Library" active={page === "library"} onClick={() => setPage("library")} />
+          <NavButton label="Stats" active={page === "stats"} onClick={() => setPage("stats")} />
+        </nav>
         <div style={styles.headerRight}>
-          <button style={styles.addBtn} onClick={() => setAddPanelOpen(true)}>
-            + Add Novel
-          </button>
-        <button style={styles.addBtn} onClick={async () => {
-  try {
-    const saved = await exportToFile();
-    console.log(saved ? "exported successfully" : "user cancelled");
-    notify(saved
-      ? "Exported to file (novels, progress, aliases, sources, site links, reading log)"
-      : "Export cancelled");
-  } catch (e) {
-    console.error("export failed:", e);
-    notify("Export failed — see the console for details", true);
-  }
-}}>
-  Export
-</button>
-        {notice && (
-          <span style={{ ...styles.notice, color: notice.error ? "#f87171" : "#8a8a96" }}>
-            {notice.text}
-          </span>
-        )}
-          <AddNovelPanel
-            open={addPanelOpen}
-            onClose={() => setAddPanelOpen(false)}
-            existingNovels={novels.map((n) => ({ id: n.id, title: n.canonical_title, aliases: n.aliases }))}
-            onSubmit={async (data) => {
-              try {
-                await addNovel(data);
-                const updated = await getAllNovels();
-                setNovels(updated);
-                notify(`Added ${data.canonical_title}`);
-              } catch (e) {
-                console.error("add failed:", e);
-                notify("Couldn't add that novel — nothing was written.", true);
-                throw e; // keep the panel open with the form intact
-              }
-            }}
-          />
-          <EditNovelPanel
-            novel={editTarget}
-            onClose={() => setEditTarget(null)}
-            onSave={async (data: EditNovelData) => {
-              // The panel edits a snapshot. If the extension wrote anything newer
-              // while it was open, keep that instead of reverting it to stale data.
-              try {
-                const before = await getAllNovels();
-                const live = before.find((n) => n.id === data.id) as Novel | undefined;
-                const chapterUntouched = !editTarget
-                  || data.current_chapter_raw === editTarget.current_chapter_raw;
-                const authorUntouched = !editTarget || data.author === editTarget.author;
-                const tagsUntouched = !editTarget
-                  || JSON.stringify(data.tags) === JSON.stringify(editTarget.tags);
-
-                const payload = {
-                  ...data,
-                  current_chapter_raw: chapterUntouched && live
-                    ? live.current_chapter_raw ?? ""
-                    : data.current_chapter_raw,
-                  author: authorUntouched && live ? live.author ?? "" : data.author,
-                  tags: tagsUntouched && live ? live.tags : data.tags,
-                };
-
-                await updateNovel(payload);
-                const updated = await getAllNovels();
-                setNovels(updated as Novel[]);
-                setEditTarget(null);
-                notify("Changes saved");
-              } catch (e) {
-                console.error("save failed:", e);
-                notify("Couldn't save changes — nothing was written.", true);
-                throw e; // leave the panel open so the edits aren't lost
-              }
-            }}
-            onDelete={async (id: number) => {
-              try {
-                await deleteNovel(id);
-                const updated = await getAllNovels();
-                setNovels(updated as Novel[]);
-                setEditTarget(null);
-                notify("Removed from library");
-              } catch (e) {
-                console.error("delete failed:", e);
-                notify("Couldn't remove that novel — nothing was deleted.", true);
-                throw e;
-              }
-            }}
-          />
+          {notice && (
+            <span
+              role="status"
+              aria-live="polite"
+              style={{ ...styles.notice, color: notice.error ? "#f87171" : "#8a8a96" }}
+            >
+              {notice.text}
+            </span>
+          )}
         </div>
       </header>
 
-      {page === "stats" && <StatsPanel />}
+      {/* The panels sit outside the header — a dialog has no business inside a banner */}
+      <AddNovelPanel
+        open={addPanelOpen}
+        onClose={() => setAddPanelOpen(false)}
+        existingNovels={novels.map((n) => ({ id: n.id, title: n.canonical_title, aliases: n.aliases }))}
+        onSubmit={async (data) => {
+          try {
+            await addNovel(data);
+            const updated = await getAllNovels();
+            setNovels(updated);
+            notify(`Added ${data.canonical_title}`);
+          } catch (e) {
+            console.error("add failed:", e);
+            notify("Couldn't add that novel — nothing was written.", true);
+            throw e; // keep the panel open with the form intact
+          }
+        }}
+      />
+      <EditNovelPanel
+        novel={editTarget}
+        onClose={() => setEditTarget(null)}
+        onSave={async (data: EditNovelData) => {
+          // The panel edits a snapshot. If the extension wrote anything newer
+          // while it was open, keep that instead of reverting it to stale data.
+          try {
+            const before = await getAllNovels();
+            const live = before.find((n) => n.id === data.id) as Novel | undefined;
+            const chapterUntouched = !editTarget
+              || data.current_chapter_raw === editTarget.current_chapter_raw;
+            const authorUntouched = !editTarget || data.author === editTarget.author;
+            const tagsUntouched = !editTarget
+              || JSON.stringify(data.tags) === JSON.stringify(editTarget.tags);
+
+            const payload = {
+              ...data,
+              current_chapter_raw: chapterUntouched && live
+                ? live.current_chapter_raw ?? ""
+                : data.current_chapter_raw,
+              author: authorUntouched && live ? live.author ?? "" : data.author,
+              tags: tagsUntouched && live ? live.tags : data.tags,
+            };
+
+            await updateNovel(payload);
+            const updated = await getAllNovels();
+            setNovels(updated as Novel[]);
+            setEditTarget(null);
+            notify("Changes saved");
+          } catch (e) {
+            console.error("save failed:", e);
+            notify("Couldn't save changes — nothing was written.", true);
+            throw e; // leave the panel open so the edits aren't lost
+          }
+        }}
+        onDelete={async (id: number) => {
+          try {
+            await deleteNovel(id);
+            const updated = await getAllNovels();
+            setNovels(updated as Novel[]);
+            setEditTarget(null);
+            notify("Removed from library");
+          } catch (e) {
+            console.error("delete failed:", e);
+            notify("Couldn't remove that novel — nothing was deleted.", true);
+            throw e;
+          }
+        }}
+      />
+
+      {page === "stats" && <StatsPanel onExport={handleExport} />}
 
       {page === "library" && <div style={styles.toolbar}>
         <div style={styles.searchWrap}>
-          <span style={styles.searchIcon}>⌕</span>
+          <span style={styles.searchIcon} aria-hidden="true">⌕</span>
           <input
             style={{
               ...styles.searchInput,
               paddingRight: search ? 32 : 10,  // make room for clear btn
             }}
-            placeholder="Search titles, aliases..."
+            placeholder="Search titles, aliases…"
+            aria-label="Search novels by title or alias"
+            autoComplete="off"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           {search && (
             <button
               style={styles.searchClear}
+              aria-label="Clear search"
               onClick={() => setSearch("")}
             >
               ×
@@ -957,8 +1034,9 @@ export default function App() {
           )}
         </div>
         <div style={styles.selectWrap}>
-          <span style={styles.selectLabel}>Filter</span>
+          <label htmlFor="status-filter" style={styles.selectLabel}>Filter</label>
           <select
+            id="status-filter"
             style={styles.select}
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as Status | "all")}
@@ -970,8 +1048,9 @@ export default function App() {
           </select>
         </div>
         <div style={styles.selectWrap}>
-          <span style={styles.selectLabel}>Sort</span>
+          <label htmlFor="sort-key" style={styles.selectLabel}>Sort</label>
           <select
+            id="sort-key"
             style={styles.select}
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
@@ -982,9 +1061,27 @@ export default function App() {
           </select>
         </div>
         <div style={styles.viewToggle}>
-          <button style={getViewBtnStyle(viewMode === "list")} onClick={() => setViewMode("list")}>☰</button>
-          <button style={getViewBtnStyle(viewMode === "grid")} onClick={() => setViewMode("grid")}>⊞</button>
-          <button style={getViewBtnStyle(viewMode === "compact")} onClick={() => setViewMode("compact")}>▤</button>
+          <button
+            style={getViewBtnStyle(viewMode === "list")}
+            aria-label="List view"
+            aria-pressed={viewMode === "list"}
+            title="List view"
+            onClick={() => setViewMode("list")}
+          >☰</button>
+          <button
+            style={getViewBtnStyle(viewMode === "grid")}
+            aria-label="Grid view"
+            aria-pressed={viewMode === "grid"}
+            title="Grid view"
+            onClick={() => setViewMode("grid")}
+          >⊞</button>
+          <button
+            style={getViewBtnStyle(viewMode === "compact")}
+            aria-label="Compact view"
+            aria-pressed={viewMode === "compact"}
+            title="Compact view"
+            onClick={() => setViewMode("compact")}
+          >▤</button>
           
         </div>
       </div>}
@@ -1004,7 +1101,14 @@ export default function App() {
             </div>
           </div>
         ) : filtered.length === 0 ? (
-          <div style={styles.emptyState}>No novels found.</div>
+          <div style={styles.emptyState}>
+            {novels.length === 0 ? "Your library is empty." : "No novels match those filters."}
+            <div style={styles.emptyHint}>
+              {novels.length === 0
+                ? "Add the first one with the + button in the corner, or open a site you read on and let the extension catch it."
+                : "Try a different search, or set the status filter back to All Status."}
+            </div>
+          </div>
         ) : viewMode === "list" ? (
           <table style={styles.listTable}>
             <thead>
@@ -1032,8 +1136,17 @@ export default function App() {
           {filtered.map((n) => (
             <div
               key={n.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Edit ${n.canonical_title}`}
               style={styles.compactCard}
               onClick={() => setEditTarget(toEditData(n))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setEditTarget(toEditData(n));
+                }
+              }}
             >
               <div style={styles.compactTitle}>{n.canonical_title}</div>
               <span style={{ ...getStatusBadgeStyle(n.status), fontSize: 9, padding: "1px 6px" }}>
@@ -1055,6 +1168,8 @@ export default function App() {
           </div>
         )}
       </main>}
+
+      {page === "library" && <AddButton onClick={() => setAddPanelOpen(true)} />}
 
       {quickUpdateTarget && (
         <QuickUpdateModal

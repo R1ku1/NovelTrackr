@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   type Status,
   DEFAULT_STATUS,
-  FieldLabel, TextInput, TextArea,
+  FieldLabel, TextInput, TextArea, CoverImage,
   StatusPicker, ChipInput,
   PanelShell, PanelHeader, PanelFooter,
   BtnPrimary, BtnSecondary,
@@ -85,37 +85,6 @@ function findDuplicates(title: string, existing: ExistingNovel[]): ExistingNovel
     return false;
   });
 }
-function CoverPreview({ url }: { url: string }) {
-  const [broken, setBroken] = useState(false);
-
-  // Reset broken state when URL changes
-  useEffect(() => {
-    setBroken(false);
-  }, [url]);
-
-  if (broken) {
-    return (
-      <span style={{
-        fontSize: 10,
-        color: "#333",
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-      }}>
-        No Cover
-      </span>
-    );
-  }
-
-  return (
-    <img
-      src={url}
-      alt="Cover preview"
-      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-      onError={() => setBroken(true)}
-    />
-  );
-}
-
 // ── Duplicate Warning ─────────────────────────────────────────────────────────
 function DuplicateWarning({
   matches,
@@ -285,7 +254,7 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
   if (!open && !visible) return null;
 
   return (
-    <PanelShell visible={visible} onClose={onClose}>
+    <PanelShell visible={visible} onClose={onClose} label="Add Novel">
       <PanelHeader eyebrow="Library" title="Add Novel" onClose={onClose} />
 
       <div style={{
@@ -353,7 +322,7 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
           <ChipInput
             values={form.aliases}
             onChange={(v) => set("aliases", v)}
-            placeholder="e.g. TBATE, The Beginning..."
+            placeholder="e.g. TBATE, The Beginning…"
             hint="Press Enter or comma to add. Searched alongside the main title."
           />
         </div>
@@ -375,14 +344,14 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
               alignItems: "center",
               justifyContent: "center",
             }}>
-              <CoverPreview url={form.cover_url} />
+              <CoverImage url={form.cover_url} alt="Cover preview" />
             </div>
           )}
 
           <TextInput
             value={form.cover_url}
             onChange={(v) => set("cover_url", v)}
-            placeholder="https://..."
+            placeholder="https://…"
           />
           <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
             Paste any image URL. Right-click a cover → Copy image address.
@@ -395,7 +364,7 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
           <TextArea
             value={form.notes}
             onChange={(v) => set("notes", v)}
-            placeholder="Anything you want to remember about this novel..."
+            placeholder="Anything you want to remember about this novel…"
             rows={3}
           />
         </div>

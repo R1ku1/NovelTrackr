@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getStats, type Bucket, type Day, type Stats, type TagStat, type Week } from "./stats";
-import { STATUS_OPTIONS, FONT } from "./formComponents";
+import { STATUS_OPTIONS, FONT, BtnSecondary } from "./formComponents";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function percent(part: number, whole: number): number {
@@ -54,7 +54,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   head: {
     display: "flex",
-    alignItems: "baseline",
+    alignItems: "flex-end",
     justifyContent: "space-between",
     gap: 12,
     flexWrap: "wrap",
@@ -65,6 +65,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: "#e8e6e1",
     letterSpacing: "0.02em",
+    textWrap: "balance",
   },
   headMeta: {
     fontSize: 11,
@@ -126,6 +127,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     fontStyle: "italic",
     color: "#e8e6e1",
+    fontVariantNumeric: "tabular-nums",
   },
   cardSub: {
     fontSize: 11,
@@ -142,6 +144,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sectionTitle: {
     fontSize: 12,
+    fontWeight: 400,
     letterSpacing: "0.14em",
     textTransform: "uppercase",
     color: "#888",
@@ -177,6 +180,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: "#888",
     textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
   },
   totalChip: {
     fontSize: 11,
@@ -198,7 +202,7 @@ const styles: Record<string, React.CSSProperties> = {
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section style={styles.section}>
-      <div style={styles.sectionTitle}>{title}</div>
+      <h2 style={styles.sectionTitle}>{title}</h2>
       {hint && <div style={styles.sectionHint}>{hint}</div>}
       {children}
     </section>
@@ -217,9 +221,14 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub: st
 
 function Heatmap({ activity }: { activity: Day[] }) {
   const weeks = heatmapWeeks(activity);
+  const activeDays = activity.filter((d) => d.entries > 0).length;
 
   return (
-    <div style={{ display: "flex", gap: 3, overflowX: "auto", paddingBottom: 4 }}>
+    <div
+      role="img"
+      aria-label={`Reading activity over the last 12 months: ${plural(activeDays, "active day")}`}
+      style={{ display: "flex", gap: 3, overflowX: "auto", paddingBottom: 4 }}
+    >
       {weeks.map((week, i) => (
         <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {week.map((day, j) => (
@@ -247,7 +256,7 @@ function WeekBars({ weeks }: { weeks: Week[] }) {
     <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
       {weeks.map((week, i) => (
         <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-          <div style={{ fontSize: 10, color: week.chapters > 0 ? "#8a8a96" : "#3a3a45" }}>{week.chapters}</div>
+          <div style={{ fontSize: 10, color: week.chapters > 0 ? "#8a8a96" : "#3a3a45", fontVariantNumeric: "tabular-nums" }}>{week.chapters}</div>
           <div
             title={`${plural(week.chapters, "chapter")} logged`}
             style={{
@@ -282,7 +291,7 @@ function Histogram({ buckets }: { buckets: Bucket[] }) {
               }}
             />
           </div>
-          <span style={{ width: 24, fontSize: 11, color: bucket.count > 0 ? "#999" : "#3a3a45", textAlign: "right" }}>
+          <span style={{ width: 24, fontSize: 11, color: bucket.count > 0 ? "#999" : "#3a3a45", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
             {bucket.count}
           </span>
         </div>
@@ -318,7 +327,7 @@ function TagTable({ rows }: { rows: TagStat[] }) {
 }
 
 // ── The panel ─────────────────────────────────────────────────────────────────
-export default function StatsPanel() {
+export default function StatsPanel({ onExport }: { onExport: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -350,12 +359,15 @@ export default function StatsPanel() {
   return (
     <div style={styles.page}>
       <div style={styles.head}>
-        <div style={styles.headTitle}>Reading stats</div>
-        <div style={styles.headMeta}>
-          {plural(stats.log_entries, "log entry")}
-          {stats.first_entry ? ` · since ${stats.first_entry}` : ""}
-          {` · ${plural(stats.active_days, "active day")}`}
+        <div>
+          <h1 style={styles.headTitle}>Reading Stats</h1>
+          <div style={styles.headMeta}>
+            {plural(stats.log_entries, "log entry")}
+            {stats.first_entry ? ` · since ${stats.first_entry}` : ""}
+            {` · ${plural(stats.active_days, "active day")}`}
+          </div>
         </div>
+        <BtnSecondary label="Export Data" onClick={onExport} />
       </div>
 
       {!hasLog && (
