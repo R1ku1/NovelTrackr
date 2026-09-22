@@ -377,15 +377,18 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
                   title="Search NovelUpdates for this novel and pick the right series — its tags come back to the library"
                   onClick={() => {
                     const query = [form.canonical_title, form.author].filter(Boolean).join(" ");
-                    openUrl(`https://www.novelupdates.com/?s=${encodeURIComponent(query)}&post_type=wp-manga`)
+                    // The query rides in the fragment (never sent to NU) and the
+                    // extension runs NU's own search box with it, so no search URL
+                    // format has to be right for this to work.
+                    openUrl(`https://www.novelupdates.com/#noveltrackr=${encodeURIComponent(query)}`)
                       .catch((e: unknown) => console.error("could not open NovelUpdates:", e));
                   }}
                 />
                 <MiniBtn
                   label="Tag list"
-                  title="Visit NovelUpdates' tag list so the app can offer tag suggestions"
+                  title="Open NovelUpdates' Series Finder — the app learns its tag names for suggestions"
                   onClick={() => {
-                    openUrl("https://www.novelupdates.com/series-tags/")
+                    openUrl("https://www.novelupdates.com/series-finder/")
                       .catch((e: unknown) => console.error("could not open NovelUpdates:", e));
                   }}
                 />
@@ -398,7 +401,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               suggestions={vocabulary}
               hint={vocabulary.length > 0
                 ? `Captured from the site you read on, or added here. ${vocabulary.length} tags known — start typing for suggestions.`
-                : "Captured from the site you read on, or added here. Use “Tag list” once to get NovelUpdates suggestions."}
+                : "Captured from the site you read on, or added here. “Tag list” loads NovelUpdates' tag names for suggestions."}
             />
           </div>
 

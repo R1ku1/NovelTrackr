@@ -112,10 +112,11 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author, ta
   }
 }
 
-// ── Tag vocabulary from NovelUpdates' Series Tags page ───────────────────────
-// Silent on purpose: there is nothing to prompt for. The app shows how many tags
-// it knows, which is the feedback that the capture worked.
-async function handleVocabularyDetection({ tags }) {
+// ── Tag vocabulary ───────────────────────────────────────────────────────────
+// NU's own tag names are the canonical list (plan §4.2.2), so they are what the
+// app normalises every other site's spelling against. Silent on purpose: the app
+// shows how many tags it knows, which is the feedback that the capture worked.
+async function postVocabulary(tags) {
   if (!tags || tags.length === 0) return;
 
   const running = await isAppRunning();
@@ -138,7 +139,7 @@ async function handleVocabularyDetection({ tags }) {
 
     console.log("[Noveltrackr] tag vocabulary saved:", tags.length);
   } catch (e) {
-    console.error("[Noveltrackr] handleVocabularyDetection failed:", e);
+    console.error("[Noveltrackr] postVocabulary failed:", e);
   }
 }
 
@@ -236,7 +237,11 @@ async function handleMetadataDetection({ title, author, tags, source, url }) {
 
     if (!res.ok) {
       console.error("[Noveltrackr] metadata write rejected:", await res.text());
+      return;
     }
+
+    // NU tag names are canonical, so a series page also teaches the vocabulary
+    if (source === "nu") await postVocabulary(tags);
   } catch (e) {
     console.error("[Noveltrackr] handleMetadataDetection failed:", e);
   }
@@ -440,7 +445,7 @@ if (message.type === "COVER_DETECTED") {
 }
 
   if (message.type === "VOCABULARY_DETECTED") {
-    handleVocabularyDetection(message.payload).catch(console.error);
+    postVocabulary(message.payload.tags).catch(console.error);
     sendResponse({ ok: true });
     return false;
   }

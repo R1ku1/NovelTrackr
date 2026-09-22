@@ -111,16 +111,16 @@ const SITE_TAGS = {
     source: "novelfire",
     selectors: ["a[href*='/genre/']", ".novel-tags a", ".tags a"],
   },
-  // NU series pages list every tag as a "series-finder" filter link. Genres use
-  // the same links, so the tag block is preferred and the broad match is only a
-  // fallback — verify on a live series page (plan §4.2.4).
+  // NU series pages list their tags in a "#showtags" block (verified markup).
+  // Genres share the same "series-finder" link shape, so the tag block is tried
+  // first and the broad match is only a fallback.
   "novelupdates.com": {
     source: "nu",
     selectors: ["#showtags a", "[id*='showtag'] a", "a[href*='series-finder']"],
   },
 };
 
-const MAX_TAGS = 40;
+const MAX_TAGS = 100;
 const MAX_VOCABULARY = 1000;
 
 // Tags differ in case and punctuation between sites — "Lit-rpg" and "LitRPG"
@@ -160,17 +160,17 @@ function extractTags() {
 }
 
 // ── NovelUpdates tag vocabulary (plan §4.2.2) ─────────────────────────────────
-// A single visit to NU's Series Tags page fills the app's tag list, which powers
-// tag suggestions and the canonical spelling of tags captured elsewhere.
+// NU has no page that lists every tag, so the vocabulary grows from the tags we
+// actually read off series pages ("#showtags" — verified markup) plus whatever
+// its Series Finder page offers in bulk. Canonical NU names either way.
 const NU_HOST = "novelupdates.com";
-const NU_TAGS_PATH = "/series-tags";
+const NU_FINDER_PATH = "/series-finder";
 
-// Every tag listed there is a filter link; the later selectors catch markup that
-// keeps the links but moves them
-const NU_VOCABULARY_SELECTORS = [
-  "#main a[href*='series-finder']",
-  ".series-tags a",
-  "a[href*='series-finder']",
+// The finder's tag filters; anything that doesn't match simply writes nothing
+const NU_FINDER_SELECTORS = [
+  "a[href*='series-finder'][href*='sh=']",
+  "input[name='tgi'] + label",
+  "#sf_tags a",
 ];
 
 function isNuPage(pathPrefix) {
@@ -180,9 +180,12 @@ function isNuPage(pathPrefix) {
 }
 
 // ── NovelUpdates search flow (plan §4.2.1 Path B) ─────────────────────────────
-// The app opens NU's search for a library novel. This page lists the candidates
-// so the user — not a fuzzy match — picks the right series.
-const NU_SEARCH_PARAM = "s";
+// The app can only hand us a URL, so it parks the query in the fragment (which is
+// never sent to NU) and we run NU's own search box. That way the site decides
+// where its results live and no URL format has to be guessed.
+const NU_HASH_MARKER = "noveltrackr=";
+const NU_SEARCH_BOX = "input[name='s'], #s, input[type='search']";
+const NU_SEARCH_PARAMS = ["s", "sh"];
 const MAX_CANDIDATES = 10;
 
 function decodeParam(value) {
@@ -193,15 +196,50 @@ function decodeParam(value) {
   }
 }
 
-function nuSearchQuery() {
-  const match = (window.location.search || "").match(/[?&]s=([^&]+)/);
+function onNovelUpdates() {
+  const host = hostName();
+  return host === NU_HOST || host.endsWith("." + NU_HOST);
+}
+
+function paramValue(names) {
+  for (const name of names) {
+    const match = (window.location.search || "").match(new RegExp(`[?&]${name}=([^&]+)`));
+    if (match) return decodeParam(match[1]).trim() || null;
+  }
+  return null;
+}
+
+// The query the app parked in the fragment, if this page load carries one
+function pendingSearchQuery() {
+  const match = (window.location.hash || "").match(new RegExp(`${NU_HASH_MARKER}([^&]+)`));
   return match ? decodeParam(match[1]).trim() || null : null;
 }
 
-function isNuSearchPage() {
-  const host = hostName();
-  const onNu = host === NU_HOST || host.endsWith("." + NU_HOST);
-  return onNu && !window.location.pathname.startsWith(NU_TAGS_PATH) && Boolean(nuSearchQuery());
+function nuSearchBox() {
+  return document.querySelector(NU_SEARCH_BOX);
+}
+
+// Runs NU's own search, then drops the marker so a reload can't repeat it
+function submitNuSearch(query) {
+  const box = nuSearchBox();
+  const form = box?.form;
+  if (!box || !form) return false;
+
+  if (window.history?.replaceState) {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+
+  box.value = query;
+  if (typeof form.requestSubmit === "function") form.requestSubmit();
+  else form.submit();
+
+  return true;
+}
+
+// A results page echoes the query back — in the URL when NU put it there, and in
+// the search box either way
+function nuSearchQuery() {
+  return paramValue(NU_SEARCH_PARAMS) ?? nuSearchBox()?.value?.trim() ?? null;
 }
 
 // Every series link on the results page is a candidate; nothing is picked for
@@ -339,10 +377,18 @@ function scheduleCoverDetection(indexTitle, meta = {}) {
 function run() {
   console.log("[Noveltrackr] run() called on:", window.location.href);
 
-  // NU's Series Tags page is the app's tag vocabulary (plan §4.2.2)
-  if (isNuPage(NU_TAGS_PATH)) {
-    const tags = firstTags(NU_VOCABULARY_SELECTORS, MAX_VOCABULARY);
-    console.log("[Noveltrackr] tag vocabulary page — tags found:", tags.length);
+  // The app parked a query here: run NU's own search (plan §4.2.1 Path B)
+  const pending = onNovelUpdates() ? pendingSearchQuery() : null;
+  if (pending) {
+    const started = submitNuSearch(pending);
+    console.log("[Noveltrackr] NU search for:", pending, started ? "submitted" : "— no search box found");
+    return;
+  }
+
+  // NU's Series Finder is a bulk source of canonical tag names (plan §4.2.2)
+  if (isNuPage(NU_FINDER_PATH)) {
+    const tags = firstTags(NU_FINDER_SELECTORS, MAX_VOCABULARY);
+    console.log("[Noveltrackr] Series Finder — tags found:", tags.length);
 
     if (tags.length > 0) {
       chrome.runtime.sendMessage({
@@ -353,19 +399,19 @@ function run() {
     return;
   }
 
-  // NU's results page: the app asked for this search, so report what it found
-  if (isNuSearchPage()) {
+  // A results page looks like this: a search box holding a query
+  if (onNovelUpdates() && nuSearchQuery()) {
     const query = nuSearchQuery();
     const candidates = extractCandidates();
     console.log("[Noveltrackr] NU search page:", query, "— candidates:", candidates.length);
 
-    if (query && candidates.length > 0) {
+    if (candidates.length > 0) {
       chrome.runtime.sendMessage({
         type: "NU_SEARCH_DETECTED",
         payload: { query, candidates },
       }).catch((e) => console.log("[Noveltrackr] NU search message failed:", e));
+      return;
     }
-    return;
   }
 
   const result = extractGeneric();

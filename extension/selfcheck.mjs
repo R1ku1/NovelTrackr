@@ -449,6 +449,10 @@ function makeDom() {
     tags: ["LitRPG", "Progression Fantasy"],
     source: "royalroad",
   }, "tags must be written with the site they came from");
+  assert.equal(
+    calls.filter((c) => c.url.endsWith("/tag-vocabulary")).length, 0,
+    "only NovelUpdates' tags are canonical enough to teach the vocabulary"
+  );
 
   // A page for a novel the library doesn't have is the cover flow's business
   calls.length = 0;
@@ -524,7 +528,7 @@ function makeDom() {
   console.log("\u2713 background.js passes the page's author through the cover save");
 }
 
-// ── 13. content.js: NU's tag list becomes the app's tag vocabulary ───────────
+// ── 13. content.js: NU's Series Finder loads tag names into the vocabulary ───
 {
   const tagEls = [
     { textContent: "LitRPG" },
@@ -533,17 +537,19 @@ function makeDom() {
     { textContent: "z".repeat(80) }, // junk
   ];
   const location = {
-    href: "https://www.novelupdates.com/series-tags/",
+    href: "https://www.novelupdates.com/series-finder/",
     hostname: "www.novelupdates.com",
-    pathname: "/series-tags/",
+    pathname: "/series-finder/",
+    search: "",
+    hash: "",
   };
 
   const timers = [];
   const chrome = makeChrome({});
   const document = {
-    title: "Series Tags - Novel Updates",
+    title: "Series Finder - Novel Updates",
     querySelector: () => null,
-    querySelectorAll: (sel) => (sel.includes("series-finder") ? tagEls : []),
+    querySelectorAll: (sel) => (sel.includes("sh=") ? tagEls : []),
     addEventListener: () => {},
   };
 
@@ -558,10 +564,10 @@ function makeDom() {
   vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
 
   const msg = chrome.calls.messages.find((m) => m.type === "VOCABULARY_DETECTED");
-  assert.ok(msg, "the tag list page must report the tags it lists");
+  assert.ok(msg, "the Series Finder page must report the tags it lists");
   assert.deepEqual([...msg.payload.tags], ["LitRPG", "Progression Fantasy"], "the list must be cleaned");
-  assert.equal(timers.length, 0, "the tag list page is not a novel page — no cover check");
-  console.log("\u2713 content.js captures the NovelUpdates tag list");
+  assert.equal(timers.length, 0, "the finder is not a novel page — no cover check");
+  console.log("\u2713 content.js loads tag names from NU's Series Finder");
 }
 
 // ── 14. background.js: the vocabulary is posted to the app ───────────────────
@@ -572,7 +578,7 @@ function makeDom() {
   const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
 
-  await ctx.handleVocabularyDetection({ tags: ["LitRPG", "Progression Fantasy"] });
+  await ctx.postVocabulary(["LitRPG", "Progression Fantasy"]);
 
   const write = calls.find((c) => c.url.endsWith("/tag-vocabulary"));
   assert.deepEqual(write?.body, { tags: ["LitRPG", "Progression Fantasy"] }, "the app must get the tag list");
@@ -674,6 +680,10 @@ function makeDom() {
     url: candidates[1].url,
   });
   assert.equal(calls.find((c) => c.url.endsWith("/metadata"))?.body.novel_id, 5, "the chosen series must win");
+  assert.ok(
+    calls.some((c) => c.url.endsWith("/tag-vocabulary")),
+    "NU's tag names are canonical, so the series page also teaches the vocabulary"
+  );
   console.log("\u2713 background.js files the confirmed series' tags against the right novel");
 }
 
@@ -709,6 +719,82 @@ function makeDom() {
   assert.deepEqual({ ...confirm.payload }, { candidateUrl: nuPending.candidates[1].url, tabId: 7 });
   assert.match(el("body").innerHTML, /Opening that series/);
   console.log("\u2713 popup.js lists the NU candidates and confirms the one the user picked");
+}
+
+// ── 17. content.js: results are recognised even when the URL says nothing ────
+{
+  const anchors = [
+    { href: "https://www.novelupdates.com/series/shadow-slave/", textContent: "Shadow Slave" },
+  ];
+  const box = { value: "Shadow Slave" };
+  const location = {
+    href: "https://www.novelupdates.com/what/ever/nu/uses/now",
+    hostname: "www.novelupdates.com",
+    pathname: "/what/ever/nu/uses/now",
+    search: "",
+    hash: "",
+  };
+
+  const chrome = makeChrome({});
+  const document = {
+    title: "Search - Novel Updates",
+    querySelector: (sel) => (sel.includes("input[name='s']") ? box : null),
+    querySelectorAll: (sel) => (sel.includes("/series/") ? anchors : []),
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const msg = chrome.calls.messages.find((m) => m.type === "NU_SEARCH_DETECTED");
+  assert.ok(msg, "the query in NU's search box is enough to spot a results page");
+  assert.equal(msg.payload.query, "Shadow Slave");
+  console.log("\u2713 content.js spots NU results without depending on the results URL");
+}
+
+// ── 18. content.js: the app's parked query runs NU's own search ──────────────
+{
+  let submitted = 0;
+  const box = { value: "", form: { requestSubmit: () => { submitted += 1; } } };
+  let clearedTo = null;
+  const location = {
+    href: "https://www.novelupdates.com/#noveltrackr=Shadow%20Slave",
+    hostname: "www.novelupdates.com",
+    pathname: "/",
+    search: "",
+    hash: "#noveltrackr=Shadow%20Slave",
+  };
+
+  const chrome = makeChrome({});
+  const document = {
+    title: "Novel Updates",
+    querySelector: (sel) => (sel.includes("input[name='s']") ? box : null),
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location, history: { replaceState: (_state, _title, url) => { clearedTo = url; } } },
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  assert.equal(box.value, "Shadow Slave", "the parked query must land in NU's own search box");
+  assert.equal(submitted, 1, "NU's search form must be submitted");
+  assert.equal(clearedTo, "/", "the marker must be dropped so a reload can't search again");
+  assert.equal(chrome.calls.messages.length, 0, "the search request itself has nothing to report");
+  console.log("\u2713 content.js runs NU's own search for the query the app parked");
 }
 
 console.log("\nAll extension self-checks passed.");

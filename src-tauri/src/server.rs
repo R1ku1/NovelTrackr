@@ -86,8 +86,9 @@ pub struct VocabularyPayload {
 /// tag_source values the app understands (plan §8.2)
 const TAG_SOURCES: [&str; 5] = ["nu", "royalroad", "scribblehub", "novelfire", "manual"];
 
-/// A scraped page doesn't get to hand us an unbounded pile of junk tags
-const MAX_TAGS: usize = 40;
+/// A scraped page doesn't get to hand us an unbounded pile of junk tags. Real
+/// NU series pages carry 60+ tags, so the cap has to sit well above that.
+const MAX_TAGS: usize = 100;
 const MAX_TAG_LEN: usize = 60;
 
 /// The whole NovelUpdates vocabulary is a few hundred tags
