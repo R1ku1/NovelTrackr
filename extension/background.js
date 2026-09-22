@@ -36,6 +36,29 @@ async function clearCoverPending(tabId) {
   chrome.action.setBadgeText({ text: "", tabId });
 }
 
+// ── NU search state ──────────────────────────────────────────────────────────
+// Keyed by tab while the user is choosing, then by series URL once chosen, so
+// the choice survives the navigation that loads the series page.
+async function setNuPending(tabId, data) {
+  await chrome.storage.local.set({ [`nu_${tabId}`]: data });
+}
+
+async function getNuPending(tabId) {
+  const result = await chrome.storage.local.get(`nu_${tabId}`);
+  return result[`nu_${tabId}`] || null;
+}
+
+async function clearNuPending(tabId) {
+  await chrome.storage.local.remove(`nu_${tabId}`);
+  chrome.action.setBadgeText({ text: "", tabId });
+}
+
+async function getNuSeriesNovel(url) {
+  if (!url) return null;
+  const result = await chrome.storage.local.get(`nu_match:${url}`);
+  return result[`nu_match:${url}`] ?? null;
+}
+
 async function handleCoverDetection({ title, coverUrl, domain, tabId, author, tags, source }) {
   const running = await isAppRunning();
   if (!running) {
@@ -119,11 +142,66 @@ async function handleVocabularyDetection({ tags }) {
   }
 }
 
+// ── NovelUpdates search: the user picks the series ───────────────────────────
+// The app opened NU's search for a novel it tracks. Match the query back to the
+// library, then let the user say which result is the right series (plan §4.2.1).
+async function handleNuSearch({ query, candidates, tabId }) {
+  if (!query || !candidates || candidates.length === 0 || !tabId) return;
+
+  const running = await isAppRunning();
+  if (!running) {
+    console.log("[Noveltrackr] app not running, skipping NU search");
+    return;
+  }
+
+  try {
+    const novels = await getNovels();
+    const matches = findMatches(query, novels);
+    if (matches.length === 0) {
+      console.log("[Noveltrackr] NU search for a novel we don't have, ignoring:", query);
+      return;
+    }
+
+    await setNuPending(tabId, {
+      novelId: matches[0].id,
+      novelTitle: matches[0].canonical_title,
+      query,
+      candidates,
+      tabId,
+    });
+
+    chrome.action.setBadgeText({ text: "?", tabId });
+    chrome.action.setBadgeBackgroundColor({ color: "#60a5fa", tabId });
+    console.log("[Noveltrackr] NU candidates ready for tab", tabId);
+  } catch (e) {
+    console.error("[Noveltrackr] handleNuSearch failed:", e);
+  }
+}
+
+/// Remembers which novel the chosen series belongs to, then opens it so the
+/// page's tags come back through the normal metadata path
+async function handleNuConfirm(tabId, candidateUrl) {
+  const pending = await getNuPending(tabId);
+  if (!pending || !candidateUrl) return { error: "no_pending" };
+
+  await chrome.storage.local.set({ [`nu_match:${candidateUrl}`]: pending.novelId });
+  await clearNuPending(tabId);
+
+  try {
+    await chrome.tabs.update(tabId, { url: candidateUrl });
+  } catch (e) {
+    console.error("[Noveltrackr] could not open the series page:", e);
+    return { error: "open_failed" };
+  }
+
+  return { ok: true };
+}
+
 // ── Metadata from a page we already track ─────────────────────────────────────
 // Silent on purpose: no badge, no prompt. The page is evidence for a novel the
 // user already has; if it isn't in the library, the cover flow offers to add it.
 // The app fills only empty fields, so this can never overwrite a manual edit.
-async function handleMetadataDetection({ title, author, tags, source }) {
+async function handleMetadataDetection({ title, author, tags, source, url }) {
   const hasTags = Boolean(tags && tags.length);
   if (!author && !hasTags) return;
 
@@ -136,7 +214,11 @@ async function handleMetadataDetection({ title, author, tags, source }) {
   try {
     const novels = await getNovels();
     const matches = findMatches(title, novels);
-    if (matches.length === 0) {
+    // A series the user picked in the NU flow beats a fuzzy title match
+    const confirmed = await getNuSeriesNovel(url);
+    const novelId = confirmed ?? matches[0]?.id ?? null;
+
+    if (!novelId) {
       console.log("[Noveltrackr] metadata for unknown novel, ignoring:", title);
       return;
     }
@@ -145,7 +227,7 @@ async function handleMetadataDetection({ title, author, tags, source }) {
       method: "POST",
       headers: API_HEADERS,
       body: JSON.stringify({
-        novel_id: matches[0].id,
+        novel_id: novelId,
         author,
         tags: hasTags ? tags : null,
         source: hasTags ? source : null,
@@ -364,9 +446,40 @@ if (message.type === "COVER_DETECTED") {
   }
 
   if (message.type === "METADATA_DETECTED") {
-    handleMetadataDetection(message.payload).catch(console.error);
+    handleMetadataDetection({ ...message.payload, url: sender.tab?.url }).catch(console.error);
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (message.type === "NU_SEARCH_DETECTED") {
+    handleNuSearch({ ...message.payload, tabId: sender.tab?.id }).catch(console.error);
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message.type === "GET_NU_PENDING") {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (!tabId) { sendResponse(null); return; }
+      sendResponse(await getNuPending(tabId));
+    });
+    return true;
+  }
+
+  if (message.type === "NU_CONFIRM") {
+    handleNuConfirm(message.payload.tabId, message.payload.candidateUrl)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ error: e.message }));
+    return true;
+  }
+
+  if (message.type === "DISMISS_NU") {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId) await clearNuPending(tabId);
+      sendResponse({ ok: true });
+    });
+    return true;
   }
 
   if (message.type === "GET_COVER_PENDING") {
@@ -411,10 +524,13 @@ if (message.type === "COVER_DETECTED") {
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.remove(`pending_${tabId}`);
   chrome.storage.local.remove(`cover_${tabId}`);
+  chrome.storage.local.remove(`nu_${tabId}`);
 });
 
 // ── Navigating away invalidates whatever was detected on the previous page ────
 // Otherwise the badge and popup keep offering to update a page you already left.
+// The NU choice is kept on purpose: confirming it moves the tab to the series
+// page, and the app's search URL can redirect before the user answers.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (!changeInfo.url) return;
   clearPending(tabId);

@@ -19,8 +19,8 @@ async function getPendingWithRetry(maxAttempts = 5, delayMs = 200) {
   if (tabId) {
     const badge = await chrome.action.getBadgeText({ tabId });
     // Only badges set by chapter detection are worth retrying for
-    if (!badge || badge === "+") {
-      return null; // cover or nothing — skip chapter retry
+    if (!badge || badge === "+" || badge === "?") {
+      return null; // cover, NU search or nothing — skip chapter retry
     }
   }
 
@@ -34,6 +34,10 @@ async function getPendingWithRetry(maxAttempts = 5, delayMs = 200) {
 
 async function getCoverPending() {
   return chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
+}
+
+async function getNuPending() {
+  return chrome.runtime.sendMessage({ type: "GET_NU_PENDING" });
 }
 async function init() {
   const dot = document.getElementById("statusDot");
@@ -78,6 +82,12 @@ async function init() {
     return;
   }
 
+  const nu = await getNuPending();
+  if (nu) {
+    renderNuCandidates(body, nu);
+    return;
+  }
+
   // Badge was set but data not ready yet — poll
   let attempts = 0;
   const poll = setInterval(async () => {
@@ -101,6 +111,13 @@ async function init() {
     if (c) {
       clearInterval(poll);
       renderCoverPrompt(body, c);
+      return;
+    }
+
+    const n = await getNuPending();
+    if (n) {
+      clearInterval(poll);
+      renderNuCandidates(body, n);
       return;
     }
   }, 200);
@@ -297,6 +314,44 @@ function renderUnknown(body, detection) {
 
   document.getElementById("btnIgnore").onclick = () => {
     chrome.runtime.sendMessage({ type: "CLEAR_PENDING" });
+    window.close();
+  };
+}
+
+// The app asked NU's search for this novel — the user says which series it is
+function renderNuCandidates(body, pending) {
+  const candidates = pending.candidates || [];
+
+  body.innerHTML = `
+    <div class="detection-label">NovelUpdates search</div>
+    <div class="detected-title">${esc(pending.novelTitle)}</div>
+    <div class="candidate-label" style="margin-top:14px">Which series is it?</div>
+    ${candidates.map((c, i) => `
+      <div class="candidate" id="candidate-${i}">
+        <div class="candidate-title">${esc(c.title)}</div>
+      </div>
+    `).join("")}
+    <div class="not-in-library" id="btnNoMatch">None of these — ignore</div>
+  `;
+
+  candidates.forEach((candidate, i) => {
+    const el = document.getElementById(`candidate-${i}`);
+    if (!el) return;
+
+    el.onclick = async () => {
+      const result = await chrome.runtime.sendMessage({
+        type: "NU_CONFIRM",
+        payload: { candidateUrl: candidate.url, tabId: pending.tabId },
+      });
+
+      body.innerHTML = result?.ok
+        ? `<div class="success">✓ Opening that series — its tags save on arrival</div>`
+        : `<div class="state-offline">Couldn't open that series. Try again from the app.</div>`;
+    };
+  });
+
+  document.getElementById("btnNoMatch").onclick = () => {
+    chrome.runtime.sendMessage({ type: "DISMISS_NU" });
     window.close();
   };
 }

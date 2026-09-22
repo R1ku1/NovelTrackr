@@ -111,6 +111,13 @@ const SITE_TAGS = {
     source: "novelfire",
     selectors: ["a[href*='/genre/']", ".novel-tags a", ".tags a"],
   },
+  // NU series pages list every tag as a "series-finder" filter link. Genres use
+  // the same links, so the tag block is preferred and the broad match is only a
+  // fallback — verify on a live series page (plan §4.2.4).
+  "novelupdates.com": {
+    source: "nu",
+    selectors: ["#showtags a", "[id*='showtag'] a", "a[href*='series-finder']"],
+  },
 };
 
 const MAX_TAGS = 40;
@@ -170,6 +177,50 @@ function isNuPage(pathPrefix) {
   const host = hostName();
   const onNu = host === NU_HOST || host.endsWith("." + NU_HOST);
   return onNu && window.location.pathname.startsWith(pathPrefix);
+}
+
+// ── NovelUpdates search flow (plan §4.2.1 Path B) ─────────────────────────────
+// The app opens NU's search for a library novel. This page lists the candidates
+// so the user — not a fuzzy match — picks the right series.
+const NU_SEARCH_PARAM = "s";
+const MAX_CANDIDATES = 10;
+
+function decodeParam(value) {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, " "));
+  } catch {
+    return value;
+  }
+}
+
+function nuSearchQuery() {
+  const match = (window.location.search || "").match(/[?&]s=([^&]+)/);
+  return match ? decodeParam(match[1]).trim() || null : null;
+}
+
+function isNuSearchPage() {
+  const host = hostName();
+  const onNu = host === NU_HOST || host.endsWith("." + NU_HOST);
+  return onNu && !window.location.pathname.startsWith(NU_TAGS_PATH) && Boolean(nuSearchQuery());
+}
+
+// Every series link on the results page is a candidate; nothing is picked for
+// the user
+function extractCandidates() {
+  const seen = new Set();
+  const candidates = [];
+
+  for (const el of document.querySelectorAll("a[href*='/series/']")) {
+    const url = el.href || "";
+    const title = el.textContent.trim();
+    if (!title || !url.includes("/series/") || seen.has(url)) continue;
+
+    seen.add(url);
+    candidates.push({ title, url });
+    if (candidates.length === MAX_CANDIDATES) break;
+  }
+
+  return candidates;
 }
 
 // Add this helper to detect if we're on an index/ToC page
@@ -298,6 +349,21 @@ function run() {
         type: "VOCABULARY_DETECTED",
         payload: { tags },
       }).catch((e) => console.log("[Noveltrackr] vocabulary message failed:", e));
+    }
+    return;
+  }
+
+  // NU's results page: the app asked for this search, so report what it found
+  if (isNuSearchPage()) {
+    const query = nuSearchQuery();
+    const candidates = extractCandidates();
+    console.log("[Noveltrackr] NU search page:", query, "— candidates:", candidates.length);
+
+    if (query && candidates.length > 0) {
+      chrome.runtime.sendMessage({
+        type: "NU_SEARCH_DETECTED",
+        payload: { query, candidates },
+      }).catch((e) => console.log("[Noveltrackr] NU search message failed:", e));
     }
     return;
   }

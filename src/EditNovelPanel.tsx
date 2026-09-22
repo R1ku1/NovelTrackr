@@ -373,6 +373,15 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               <FieldLabel text="Tags" />
               <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                 <MiniBtn
+                  label="Find on NU"
+                  title="Search NovelUpdates for this novel and pick the right series — its tags come back to the library"
+                  onClick={() => {
+                    const query = [form.canonical_title, form.author].filter(Boolean).join(" ");
+                    openUrl(`https://www.novelupdates.com/?s=${encodeURIComponent(query)}&post_type=wp-manga`)
+                      .catch((e: unknown) => console.error("could not open NovelUpdates:", e));
+                  }}
+                />
+                <MiniBtn
                   label="Tag list"
                   title="Visit NovelUpdates' tag list so the app can offer tag suggestions"
                   onClick={() => {

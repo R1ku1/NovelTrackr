@@ -13,8 +13,8 @@ const read = (f) => readFileSync(path.join(dir, f), "utf8");
 
 const silent = { log() {}, error() {}, warn() {} };
 
-function makeChrome(storage = {}, { badge = "", coverPending = null } = {}) {
-  const calls = { badge: [], messages: [] };
+function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending = null } = {}) {
+  const calls = { badge: [], messages: [], tabs: [] };
   const listeners = {};
   return {
     calls,
@@ -30,7 +30,9 @@ function makeChrome(storage = {}, { badge = "", coverPending = null } = {}) {
       onMessage: { addListener(fn) { listeners.message = fn; } },
       sendMessage: async (msg) => {
         calls.messages.push(msg);
-        return msg.type === "GET_COVER_PENDING" ? coverPending : { ok: true };
+        if (msg.type === "GET_COVER_PENDING") return coverPending;
+        if (msg.type === "GET_NU_PENDING") return nuPending;
+        return { ok: true };
       },
     },
     // chrome.tabs.query supports both the promise form (popup.js) and callback form (background.js)
@@ -39,6 +41,10 @@ function makeChrome(storage = {}, { badge = "", coverPending = null } = {}) {
         const tabs = [{ id: 7 }];
         if (typeof cb === "function") { cb(tabs); return undefined; }
         return Promise.resolve(tabs);
+      },
+      update: async (id, props) => {
+        calls.tabs.push({ id, ...props });
+        return [{ id }];
       },
       onRemoved: { addListener(fn) { listeners.removed = fn; } },
       onUpdated: { addListener(fn) { listeners.updated = fn; } },
@@ -293,7 +299,7 @@ function makeDom() {
   const document = {
     title: "Editor\u2019s Survival Guide - Novel Updates",
     querySelector: (sel) => (sel.includes("img") ? cover : null),
-    querySelectorAll: () => [cover],
+    querySelectorAll: (sel) => (sel.includes("img") ? [cover] : []),
     addEventListener: () => {},
   };
 
@@ -573,6 +579,136 @@ function makeDom() {
   assert.equal(chrome.calls.badge.length, 0, "the vocabulary capture must stay silent");
   assertAuthed(calls, "background.js (vocabulary)");
   console.log("\u2713 background.js posts the tag vocabulary to the app");
+}
+
+// ── 15. content.js: the NU results page reports its candidates ───────────────
+{
+  const anchors = [
+    { href: "https://www.novelupdates.com/series/shadow-slave/", textContent: "Shadow Slave" },
+    { href: "https://www.novelupdates.com/series/shadow-slave/", textContent: "Shadow Slave" }, // duplicate link
+    { href: "https://www.novelupdates.com/user/guiltythree/", textContent: "Guiltythree" },      // not a series
+    { href: "https://www.novelupdates.com/series/shadow-slave-2/", textContent: "Shadow Slave 2" },
+  ];
+  const location = {
+    href: "https://www.novelupdates.com/?s=Shadow%20Slave&post_type=wp-manga",
+    hostname: "www.novelupdates.com",
+    pathname: "/",
+    search: "?s=Shadow%20Slave&post_type=wp-manga",
+  };
+
+  const timers = [];
+  const chrome = makeChrome({});
+  const document = {
+    title: "Shadow Slave - Novel Updates",
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel.includes("/series/") ? anchors : []),
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const msg = chrome.calls.messages.find((m) => m.type === "NU_SEARCH_DETECTED");
+  assert.ok(msg, "the results page must report what it found");
+  assert.equal(msg.payload.query, "Shadow Slave", "the search query comes from the URL");
+  assert.equal(msg.payload.candidates.length, 2, "duplicates and non-series links are dropped");
+  assert.equal(msg.payload.candidates[0].title, "Shadow Slave");
+  assert.equal(msg.payload.candidates[0].url, anchors[0].href);
+  assert.equal(timers.length, 0, "a results page is not a novel page — no cover check");
+  console.log("\u2713 content.js lists the NU search candidates for the app's request");
+}
+
+// ── 16. background.js: matching the search back to a novel, then confirming ──
+{
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const novels = [{
+    id: 5,
+    canonical_title: "Shadow Slave",
+    aliases: [],
+    current_chapter_raw: "Chapter 220",
+  }];
+  const { calls, fetchStub } = makeFetch(novels);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  const candidates = [
+    { title: "Shadow Slave", url: "https://www.novelupdates.com/series/shadow-slave/" },
+    { title: "Shadow Slave 2", url: "https://www.novelupdates.com/series/shadow-slave-2/" },
+  ];
+  await ctx.handleNuSearch({ query: "Shadow Slave", candidates, tabId: 7 });
+
+  assert.equal(storage.nu_7.novelId, 5, "the search must be matched back to the library novel");
+  assert.ok(chrome.calls.badge.includes("?"), "the popup needs a badge to open on");
+  assertAuthed(calls, "background.js (NU search)");
+
+  // Confirming a candidate records the choice against that series URL
+  const result = await ctx.handleNuConfirm(7, candidates[1].url);
+  assert.deepEqual({ ...result }, { ok: true });
+  assert.equal(storage[`nu_match:${candidates[1].url}`], 5, "the chosen series must point at the novel");
+  assert.equal(storage.nu_7, undefined, "the choice is no longer pending once confirmed");
+  assert.deepEqual(chrome.calls.tabs, [{ id: 7, url: candidates[1].url }], "the series page must open in that tab");
+  console.log("\u2713 background.js asks which NU series it is, then opens the chosen one");
+
+  // A search for something the library doesn't have stays silent
+  chrome.calls.badge.length = 0;
+  await ctx.handleNuSearch({ query: "Some Other Novel", candidates, tabId: 7 });
+  assert.equal(storage.nu_7, undefined, "an unknown search must not queue a prompt");
+  assert.equal(chrome.calls.badge.length, 0);
+  console.log("\u2713 background.js ignores NU searches for novels it doesn't have");
+
+  // The confirmed series wins over a fuzzy title match on the series page
+  calls.length = 0;
+  await ctx.handleMetadataDetection({
+    title: "Shadow Slave 2",
+    author: null,
+    tags: ["LitRPG"],
+    source: "nu",
+    url: candidates[1].url,
+  });
+  assert.equal(calls.find((c) => c.url.endsWith("/metadata"))?.body.novel_id, 5, "the chosen series must win");
+  console.log("\u2713 background.js files the confirmed series' tags against the right novel");
+}
+
+// ── 17. popup.js: the candidate list is clickable and confirms the choice ────
+{
+  const storage = {};
+  const nuPending = {
+    novelId: 5,
+    novelTitle: "Shadow Slave",
+    query: "Shadow Slave",
+    candidates: [
+      { title: "Shadow Slave", url: "https://www.novelupdates.com/series/shadow-slave/" },
+      { title: "Shadow Slave 2", url: "https://www.novelupdates.com/series/shadow-slave-2/" },
+    ],
+    tabId: 7,
+  };
+  const chrome = makeChrome(storage, { badge: "?", nuPending });
+  const { fetchStub } = makeFetch([]);
+  const { el, document } = makeDom();
+
+  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  assert.match(el("body").innerHTML, /Which series is it\?/, "the popup must ask which series it is");
+  assert.match(el("body").innerHTML, /Shadow Slave 2/, "every candidate must be listed");
+  assert.equal(typeof el("candidate-1").onclick, "function", "candidates must be clickable");
+
+  await el("candidate-1").onclick();
+  await tick();
+
+  const confirm = chrome.calls.messages.find((m) => m.type === "NU_CONFIRM");
+  assert.deepEqual({ ...confirm.payload }, { candidateUrl: nuPending.candidates[1].url, tabId: 7 });
+  assert.match(el("body").innerHTML, /Opening that series/);
+  console.log("\u2713 popup.js lists the NU candidates and confirms the one the user picked");
 }
 
 console.log("\nAll extension self-checks passed.");
