@@ -35,6 +35,12 @@ pub fn run() {
             sql: include_str!("../migrations/003_aliases_index.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "metadata columns and reading log",
+            sql: include_str!("../migrations/004_metadata_reading_log.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     // Never panic at startup — fall back to the temp dir if the platform won't tell us

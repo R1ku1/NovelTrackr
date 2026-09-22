@@ -508,6 +508,83 @@ fn quick_add_novel(db_path: &str, payload: &QuickAddPayload) -> Result<QuickAddR
 mod tests {
     use super::*;
 
+    /// The migration files in the order sqlx applies them
+    const MIGRATIONS: [&str; 4] = [
+        include_str!("../migrations/001_init.sql"),
+        include_str!("../migrations/002_sources_unique.sql"),
+        include_str!("../migrations/003_aliases_index.sql"),
+        include_str!("../migrations/004_metadata_reading_log.sql"),
+    ];
+
+    /// Apply migrations `[..upto)` to a fresh file — a real install applies them
+    /// one at a time, and 004 reacts to whatever the library already holds.
+    fn migrate(path: &std::path::Path, upto: usize) {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        for sql in &MIGRATIONS[..upto] {
+            conn.execute_batch(sql).unwrap();
+        }
+    }
+
+    /// A runnable check's throwaway database, cleared from any earlier run
+    fn temp_db(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("nt-{}-{}.db", name, std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        path
+    }
+
+    /// Migration 004 backfills the log for novels that already exist: reading and
+    /// finished novels get one entry dated from their last update, planned ones
+    /// never started so they get none.
+    #[test]
+    fn migration_004_seeds_existing_statuses() {
+        let path = temp_db("seed");
+
+        // A pre-004 install, with a library already in it
+        migrate(&path, 3);
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO novels (canonical_title, status) VALUES
+                   ('Reading One', 'reading'),
+                   ('Done One', 'completed'),
+                   ('Planned One', 'planned')",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO progress (novel_id, chapter_raw, chapter_sort)
+                 VALUES (1, 'Chapter 12', 12)",
+                [],
+            ).unwrap();
+        }
+
+        migrate(&path, 4);
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let rows: Vec<(i64, String, Option<i64>, i64)> = conn
+            .prepare("SELECT novel_id, action, chapter, timestamp FROM reading_log ORDER BY novel_id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(
+            rows.iter().map(|r| (r.0, r.1.clone(), r.2)).collect::<Vec<_>>(),
+            vec![
+                (1, "started".to_string(), Some(12)),
+                (2, "completed".to_string(), None),
+            ],
+            "reading and finished novels must be seeded, planned ones must not"
+        );
+        assert!(
+            rows.iter().all(|r| r.3 > 1_600_000_000),
+            "seeded entries must carry a real unix timestamp: {:?}",
+            rows
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn similarity_mirrors_the_frontend_rule() {
         // Same novel, punctuation/typography differences
@@ -618,15 +695,10 @@ mod tests {
     /// breaks the checksum sqlx stores for it).
     #[test]
     fn quick_add_uses_the_app_default_status() {
-        let path = std::env::temp_dir().join(format!("nt-selftest-{}.db", std::process::id()));
-        let _ = std::fs::remove_file(&path);
+        let path = temp_db("selftest");
 
         // Fresh schema, exactly as a new install would get it
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        conn.execute_batch(include_str!("../migrations/001_init.sql")).unwrap();
-        conn.execute_batch(include_str!("../migrations/002_sources_unique.sql")).unwrap();
-        conn.execute_batch(include_str!("../migrations/003_aliases_index.sql")).unwrap();
-        drop(conn);
+        migrate(&path, MIGRATIONS.len());
 
         let result = quick_add_novel(
             path.to_str().unwrap(),
