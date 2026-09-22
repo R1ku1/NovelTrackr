@@ -374,21 +374,14 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                 <MiniBtn
                   label="Find on NU"
-                  title="Search NovelUpdates for this novel and pick the right series — its tags come back to the library"
+                  title="Search NovelUpdates for this title and pick the right series — its tags come back to the library"
                   onClick={() => {
-                    const query = [form.canonical_title, form.author].filter(Boolean).join(" ");
-                    // The query rides in the fragment (never sent to NU) and the
-                    // extension runs NU's own search box with it, so no search URL
-                    // format has to be right for this to work.
+                    // Title only: NU's search is title-oriented, and a title plus
+                    // author narrows it to nothing. The query rides in the fragment
+                    // (never sent to NU) so the extension can run the site's own
+                    // search for it.
+                    const query = form.canonical_title.trim();
                     openUrl(`https://www.novelupdates.com/#noveltrackr=${encodeURIComponent(query)}`)
-                      .catch((e: unknown) => console.error("could not open NovelUpdates:", e));
-                  }}
-                />
-                <MiniBtn
-                  label="Tag list"
-                  title="Open NovelUpdates' Series Finder — the app learns its tag names for suggestions"
-                  onClick={() => {
-                    openUrl("https://www.novelupdates.com/series-finder/")
                       .catch((e: unknown) => console.error("could not open NovelUpdates:", e));
                   }}
                 />
@@ -401,7 +394,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               suggestions={vocabulary}
               hint={vocabulary.length > 0
                 ? `Captured from the site you read on, or added here. ${vocabulary.length} tags known — start typing for suggestions.`
-                : "Captured from the site you read on, or added here. “Tag list” loads NovelUpdates' tag names for suggestions."}
+                : "Captured from the site you read on, or added here. Visiting a NovelUpdates series page or using “Find on NU” teaches the app its tag names."}
             />
           </div>
 

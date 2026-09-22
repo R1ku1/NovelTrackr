@@ -219,15 +219,19 @@ function nuSearchBox() {
   return document.querySelector(NU_SEARCH_BOX);
 }
 
-// Runs NU's own search, then drops the marker so a reload can't repeat it
+// The marker is only good for one page load
+function clearSearchMarker() {
+  if (window.history?.replaceState) {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+}
+
+// Runs NU's own search box, so the site picks the results URL. False when the
+// page has no search form we recognise — the caller then navigates instead.
 function submitNuSearch(query) {
   const box = nuSearchBox();
   const form = box?.form;
   if (!box || !form) return false;
-
-  if (window.history?.replaceState) {
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-  }
 
   box.value = query;
   if (typeof form.requestSubmit === "function") form.requestSubmit();
@@ -380,8 +384,18 @@ function run() {
   // The app parked a query here: run NU's own search (plan §4.2.1 Path B)
   const pending = onNovelUpdates() ? pendingSearchQuery() : null;
   if (pending) {
-    const started = submitNuSearch(pending);
-    console.log("[Noveltrackr] NU search for:", pending, started ? "submitted" : "— no search box found");
+    clearSearchMarker();
+
+    if (submitNuSearch(pending)) {
+      console.log("[Noveltrackr] NU search for:", pending, "— submitted NU's own search form");
+    } else {
+      // No search box on this page: let the app's tab go to NU's search URL
+      console.log("[Noveltrackr] NU search for:", pending, "— no search box found, navigating instead");
+      chrome.runtime.sendMessage({
+        type: "NU_SEARCH_FALLBACK",
+        payload: { query: pending },
+      }).catch((e) => console.log("[Noveltrackr] NU fallback failed:", e));
+    }
     return;
   }
 

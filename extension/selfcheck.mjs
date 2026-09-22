@@ -797,4 +797,57 @@ function makeDom() {
   console.log("\u2713 content.js runs NU's own search for the query the app parked");
 }
 
+// ── 19. content.js: no search box on the page → the app's tab navigates ──────
+{
+  let clearedTo = null;
+  const location = {
+    href: "https://www.novelupdates.com/#noveltrackr=Shadow%20Slave",
+    hostname: "www.novelupdates.com",
+    pathname: "/",
+    search: "",
+    hash: "#noveltrackr=Shadow%20Slave",
+  };
+
+  const chrome = makeChrome({});
+  const document = {
+    title: "Novel Updates",
+    querySelector: () => null, // no search box we recognise
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location, history: { replaceState: (_state, _title, url) => { clearedTo = url; } } },
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const fallback = chrome.calls.messages.find((m) => m.type === "NU_SEARCH_FALLBACK");
+  assert.ok(fallback, "a page without a search box must not silently do nothing");
+  assert.equal(fallback.payload.query, "Shadow Slave");
+  assert.equal(clearedTo, "/", "the marker must still be dropped");
+  console.log("\u2713 content.js asks for a navigation when NU's page has no search box");
+}
+
+// ── 20. background.js: the fallback searches NU by URL ───────────────────────
+{
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const { calls, fetchStub } = makeFetch([]);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  const result = await ctx.handleNuSearchFallback("Shadow Slave & Co", 7);
+
+  assert.deepEqual({ ...result }, { ok: true });
+  assert.deepEqual(chrome.calls.tabs, [
+    { id: 7, url: "https://www.novelupdates.com/?s=Shadow%20Slave%20%26%20Co" },
+  ], "the tab must land on NU's search for that query");
+  console.log("\u2713 background.js takes the tab to NU's search URL when needed");
+}
+
 console.log("\nAll extension self-checks passed.");
