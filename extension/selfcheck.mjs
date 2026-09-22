@@ -953,4 +953,96 @@ function makeDom() {
   console.log("\u2713 popup.js reports the captured tags and keeps the cover offer");
 }
 
+// ── 23. the whole way: the page's tags reach an add that a cover offered ──────
+// Every half above passes on its own; this is the seam between them. The cover
+// message used to lose the page's tags on its way to the popup, so a fresh novel
+// was added bare — the tags only appeared on a second visit, by which time the
+// novel is in the library and the metadata route writes them.
+{
+  const tags = [{ textContent: "LitRPG" }, { textContent: " Progression Fantasy " }];
+  const cover = {
+    src: "https://cdn.novelupdates.com/images/2026/01/shadow-slave.jpg",
+    complete: true,
+    naturalWidth: 400,
+    naturalHeight: 600,
+  };
+  const location = {
+    href: "https://www.novelupdates.com/series/shadow-slave/",
+    hostname: "www.novelupdates.com",
+    pathname: "/series/shadow-slave/",
+  };
+
+  // 1. The page — a NU series page with tags and a cover, as content.js sees it
+  const pageTimers = [];
+  const pageChrome = makeChrome({});
+  const pageDoc = {
+    title: "Shadow Slave | Novel Updates",
+    querySelector: (sel) => (sel.includes("img") ? cover : null),
+    querySelectorAll: (sel) => (sel.includes("showtag") ? tags : []),
+    addEventListener: () => {},
+  };
+  const pageCtx = vm.createContext({
+    chrome: pageChrome,
+    document: pageDoc,
+    window: { location },
+    setTimeout: (fn) => pageTimers.push(fn) - 1,
+    clearTimeout: (id) => { if (id !== null && id !== undefined) pageTimers[id] = null; },
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), pageCtx, { filename: "content.js" });
+
+  pageTimers[0]();
+  const reported = pageChrome.calls.messages.find((m) => m.type === "COVER_DETECTED");
+  assert.ok(reported, "an index page with a cover must report it");
+  assert.equal(reported.payload.title, "Shadow Slave", "the series title must be resolved");
+  assert.deepEqual([...reported.payload.tags], ["LitRPG", "Progression Fantasy"], "the page's tags must be reported");
+
+  // 2. The worker — hand it that message exactly as the page sent it
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const { fetchStub } = makeFetch([]); // empty library: nothing matches
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  chrome.listeners.message({ type: "COVER_DETECTED", payload: reported.payload }, { tab: { id: 7 } }, () => {});
+  for (let i = 0; i < 10 && !storage.cover_7; i++) await tick();
+
+  assert.equal(storage.cover_7?.type, "add", "an unknown novel must still be offered as an add");
+  assert.deepEqual([...(storage.cover_7?.tags ?? [])], ["LitRPG", "Progression Fantasy"], "the add offer must carry the tags");
+  assert.equal(storage.cover_7.source, "nu", "and the site they were read from");
+
+  // 3. The popup — what the user clicks, with no refresh in between
+  const popupChrome = makeChrome(storage, { badge: "+", coverPending: { ...storage.cover_7 } });
+  const { calls, fetchStub: popupFetch } = makeFetch([]);
+  const { el, document } = makeDom();
+  const popupCtx = vm.createContext({
+    chrome: popupChrome,
+    document,
+    window: { close() {} },
+    fetch: popupFetch,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => { fn(); return 0; },
+    Promise,
+  });
+  vm.runInContext(read("popup.js"), popupCtx, { filename: "popup.js" });
+  await tick();
+
+  assert.match(el("body").innerHTML, /2 tags come with it/, "the add prompt must say what it is about to save");
+
+  await el("btnAdd").onclick();
+  await tick();
+
+  const quickAdd = calls.find((c) => c.url.endsWith("/quick-add"));
+  assert.deepEqual(quickAdd?.body, {
+    title: "Shadow Slave",
+    chapter_raw: "",
+    tags: ["LitRPG", "Progression Fantasy"],
+    source: "nu",
+  }, "the first add must carry the page's tags, with no refresh");
+  assertAuthed(calls, "popup.js (add with tags)");
+  console.log("\u2713 a page's tags reach the app on the first add, with no refresh");
+}
+
+
 console.log("\nAll extension self-checks passed.");

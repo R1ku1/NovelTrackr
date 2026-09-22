@@ -474,6 +474,13 @@ function pageMetadata(source) {
 
 // Novel page whose title isn't in the library yet — add it (with its cover)
 function renderAddPrompt(body, cover) {
+  // The same fields the Add button posts — say what rides along, so a page whose
+  // tags didn't come through is visible before the click
+  const carried = [
+    cover.author ? "author" : null,
+    cover.tags?.length ? `${cover.tags.length} ${cover.tags.length === 1 ? "tag" : "tags"}` : null,
+  ].filter(Boolean);
+
   body.innerHTML = `
     <div class="detection-label">Novel Found</div>
     <div class="detected-title">${esc(cover.title)}</div>
@@ -486,7 +493,9 @@ function renderAddPrompt(body, cover) {
         onerror="this.style.display='none'"
       />
     </div>` : ""}
-    <div class="candidate-label" style="color:#555">Not in your library.</div>
+    <div class="candidate-label" style="color:#555">
+      Not in your library.${carried.length ? ` Its ${carried.join(" and ")} come with it.` : ""}
+    </div>
     <button class="btn-update" id="btnAdd" style="margin-top:12px">Add to Library</button>
     <button class="btn-ignore" id="btnDismissCover" style="margin-top:8px">Ignore</button>
   `;

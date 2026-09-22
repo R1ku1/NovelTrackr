@@ -449,11 +449,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
 if (message.type === "COVER_DETECTED") {
-  const { title, coverUrl, domain } = message.payload;
+  // The whole payload rides along: the page's author and tags are part of the
+  // offer to add, and handleCoverDetection decides which of them are worth
+  // keeping. Naming them here is how they got dropped on the way to the popup.
   const tabId = sender.tab?.id;
 
   if (tabId) {
-    handleCoverDetection({ title, coverUrl, domain, tabId })
+    handleCoverDetection({ ...message.payload, tabId })
       .catch(console.error);
   }
 
