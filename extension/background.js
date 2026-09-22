@@ -36,7 +36,7 @@ async function clearCoverPending(tabId) {
   chrome.action.setBadgeText({ text: "", tabId });
 }
 
-async function handleCoverDetection({ title, coverUrl, domain, tabId, author }) {
+async function handleCoverDetection({ title, coverUrl, domain, tabId, author, tags, source }) {
   const running = await isAppRunning();
   if (!running) {
     console.log("[Noveltrackr] app not running, skipping cover");
@@ -44,8 +44,8 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author }) 
   }
 
   // Only what the page actually offered — missing keys stay missing, so the
-  // popup can tell "no author detected" from "author is empty"
-  const meta = author ? { author } : {};
+  // popup can tell "nothing detected" from an empty value
+  const meta = tags?.length ? { author, tags, source } : author ? { author } : {};
 
   try {
     const novels = await getNovels();
@@ -93,8 +93,9 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author }) 
 // Silent on purpose: no badge, no prompt. The page is evidence for a novel the
 // user already has; if it isn't in the library, the cover flow offers to add it.
 // The app fills only empty fields, so this can never overwrite a manual edit.
-async function handleMetadataDetection({ title, author }) {
-  if (!author) return;
+async function handleMetadataDetection({ title, author, tags, source }) {
+  const hasTags = Boolean(tags && tags.length);
+  if (!author && !hasTags) return;
 
   const running = await isAppRunning();
   if (!running) {
@@ -113,7 +114,12 @@ async function handleMetadataDetection({ title, author }) {
     const res = await fetch(`${API}/metadata`, {
       method: "POST",
       headers: API_HEADERS,
-      body: JSON.stringify({ novel_id: matches[0].id, author }),
+      body: JSON.stringify({
+        novel_id: matches[0].id,
+        author,
+        tags: hasTags ? tags : null,
+        source: hasTags ? source : null,
+      }),
     });
 
     if (!res.ok) {

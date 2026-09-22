@@ -3,7 +3,7 @@ import {
   type Status,
   DEFAULT_STATUS,
   FieldLabel, TextInput, TextArea,
-  StatusPicker, AliasInput,
+  StatusPicker, ChipInput,
   PanelShell, PanelHeader, PanelFooter,
   BtnPrimary, BtnSecondary,
 } from "./formComponents";
@@ -350,7 +350,12 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
         {/* Aliases */}
         <div>
           <FieldLabel text="Aliases" />
-          <AliasInput aliases={form.aliases} onChange={(v) => set("aliases", v)} />
+          <ChipInput
+            values={form.aliases}
+            onChange={(v) => set("aliases", v)}
+            placeholder="e.g. TBATE, The Beginning..."
+            hint="Press Enter or comma to add. Searched alongside the main title."
+          />
         </div>
 
         {/* Cover URL */}

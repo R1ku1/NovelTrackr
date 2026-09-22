@@ -59,6 +59,8 @@ pub struct QuickAddPayload {
     pub title: String,
     pub chapter_raw: String,
     pub author: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub source: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -72,11 +74,41 @@ pub struct MappingPayload {
 pub struct MetadataPayload {
     pub novel_id: i64,
     pub author: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub source: Option<String>,
 }
+
+/// tag_source values the app understands (plan §8.2)
+const TAG_SOURCES: [&str; 5] = ["nu", "royalroad", "scribblehub", "novelfire", "manual"];
+
+/// A scraped page doesn't get to hand us an unbounded pile of junk tags
+const MAX_TAGS: usize = 40;
+const MAX_TAG_LEN: usize = 60;
 
 /// A trimmed field, or None when the page gave us nothing usable
 fn text_field(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|v| !v.is_empty())
+}
+
+/// Trim, drop junk and duplicates (case-insensitively), then cap the list
+fn clean_tags(tags: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+
+    for tag in tags {
+        let tag = tag.trim();
+        if tag.is_empty() || tag.chars().count() > MAX_TAG_LEN {
+            continue;
+        }
+        if out.iter().any(|seen| seen.eq_ignore_ascii_case(tag)) {
+            continue;
+        }
+        out.push(tag.to_string());
+        if out.len() == MAX_TAGS {
+            break;
+        }
+    }
+
+    out
 }
 
 fn cors_headers() -> Vec<Header> {
@@ -143,6 +175,27 @@ fn save_metadata(db_path: &str, payload: &MetadataPayload) -> Result<(), String>
              WHERE id = ?2 AND (author IS NULL OR author = '')",
             rusqlite::params![author, payload.novel_id],
         ).map_err(|e| e.to_string())?;
+    }
+
+    if let Some(tags) = &payload.tags {
+        let source = text_field(payload.source.as_deref())
+            .filter(|s| TAG_SOURCES.contains(s))
+            .ok_or_else(|| format!("unknown tag source: {:?}", payload.source))?;
+
+        let clean = clean_tags(tags);
+        if !clean.is_empty() {
+            let json = serde_json::to_string(&clean).map_err(|e| e.to_string())?;
+
+            // Fills an empty tag set, or refreshes what this same source wrote
+            // before. A manual edit, or tags from another site, are left alone.
+            conn.execute(
+                "UPDATE novels
+                    SET tags = ?1, tag_source = ?2, tag_fetched_at = strftime('%s','now')
+                  WHERE id = ?3
+                    AND (tag_source IS NULL OR tag_source = ?2)",
+                rusqlite::params![json, source, payload.novel_id],
+            ).map_err(|e| e.to_string())?;
+        }
     }
 
     Ok(())
@@ -590,12 +643,14 @@ fn quick_add_novel(db_path: &str, payload: &QuickAddPayload) -> Result<QuickAddR
         ).map_err(|e| e.to_string())?;
     }
 
-    // The page's author rides along with the add, through the same rules the
-    // /metadata route uses (fill a gap, never overwrite)
-    if payload.author.is_some() {
+    // The page's author and tags ride along with the add, through the same rules
+    // the /metadata route uses (fill a gap, never overwrite)
+    if payload.author.is_some() || payload.tags.is_some() {
         save_metadata(db_path, &MetadataPayload {
             novel_id: id,
             author: payload.author.clone(),
+            tags: payload.tags.clone(),
+            source: payload.source.clone(),
         })?;
     }
 
@@ -702,7 +757,7 @@ mod tests {
         let save = |id: i64, author: &str| {
             save_metadata(
                 path.to_str().unwrap(),
-                &MetadataPayload { novel_id: id, author: Some(author.to_string()) },
+                &MetadataPayload { novel_id: id, author: Some(author.to_string()), tags: None, source: None },
             ).unwrap();
         };
 
@@ -730,6 +785,78 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// Tags scraped from a page are cleaned before they are stored, a manual
+    /// edit always wins, and an unknown source is refused outright (plan §4.2).
+    #[test]
+    fn page_tags_are_cleaned_and_never_overwrite_a_manual_edit() {
+        let path = temp_db("tags");
+        migrate(&path, MIGRATIONS.len());
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO novels (canonical_title, status, tags, tag_source) VALUES
+                   ('Fresh', 'planned', NULL, NULL),
+                   ('Hand Tagged', 'planned', '[\"LitRPG\"]', 'manual')",
+                [],
+            ).unwrap();
+        }
+
+        let save = |id: i64, tags: Vec<String>, source: &str| {
+            save_metadata(
+                path.to_str().unwrap(),
+                &MetadataPayload {
+                    novel_id: id,
+                    author: None,
+                    tags: Some(tags),
+                    source: Some(source.to_string()),
+                },
+            )
+        };
+
+        save(
+            1,
+            vec![
+                " LitRPG ".to_string(),
+                "litrpg".to_string(),                  // same tag, different case
+                String::new(),                         // nothing to store
+                "x".repeat(MAX_TAG_LEN + 1),           // junk
+                "Progression Fantasy".to_string(),
+            ],
+            "royalroad",
+        ).unwrap();
+
+        // Manual tags belong to the user
+        save(2, vec!["LitRPG".to_string()], "royalroad").unwrap();
+
+        // Anything that isn't a source the app knows is refused
+        assert!(
+            save(1, vec!["X".to_string()], "evil.example").is_err(),
+            "unknown tag sources must be refused"
+        );
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let rows: Vec<(i64, Option<String>, Option<String>)> = conn
+            .prepare("SELECT id, tags, tag_source FROM novels ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(
+            rows[0],
+            (1, Some(r#"["LitRPG","Progression Fantasy"]"#.to_string()), Some("royalroad".to_string())),
+            "tags must be trimmed, de-duplicated and stored as JSON"
+        );
+        assert_eq!(
+            rows[1],
+            (2, Some(r#"["LitRPG"]"#.to_string()), Some("manual".to_string())),
+            "a manual edit must survive a page visit"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// The extension's add carries the author it read off the page.
     #[test]
     fn quick_add_keeps_the_author_the_page_offered() {
@@ -742,6 +869,8 @@ mod tests {
                 title: "Shadow Slave".to_string(),
                 chapter_raw: String::new(),
                 author: Some(" Guiltythree ".to_string()),
+                tags: None,
+                source: None,
             },
         ).unwrap();
 
@@ -921,6 +1050,8 @@ mod tests {
                 title: "Self Test".to_string(),
                 chapter_raw: String::new(),
                 author: None,
+                tags: None,
+                source: None,
             },
         )
         .unwrap();

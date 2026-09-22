@@ -15,6 +15,7 @@ interface Novel {
   notes: string;
   cover_url: string | null;
   author: string | null;
+  tags: string[];
   current_chapter_raw: string | null;
   chapter_sort: number | null;
   updated_at: string;
@@ -27,10 +28,26 @@ function toEditData(n: Novel): EditNovelData {
   return {
     ...n,
     author: n.author ?? "",
+    tags: n.tags ?? [],
     current_chapter_raw: n.current_chapter_raw ?? "",
     cover_url: n.cover_url ?? "",
     last_seen_url: n.last_seen_url ?? "",
   };
+}
+
+// Tags captured from a page or typed by hand, capped so a card can't overflow
+function TagChips({ tags, max = 3 }: { tags: string[]; max?: number }) {
+  if (tags.length === 0) return null;
+
+  const shown = tags.slice(0, max);
+  const extra = tags.length - shown.length;
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+      {shown.map((t) => <span key={t} style={styles.tagChip}>{t}</span>)}
+      {extra > 0 && <span style={styles.tagChip}>+{extra}</span>}
+    </div>
+  );
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -328,6 +345,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#6a6a76",
     marginTop: 3,
   },
+  tagChip: {
+    fontSize: 10,
+    color: "#8a8a96",
+    background: "#1a1a22",
+    border: "1px solid #22222e",
+    padding: "1px 6px",
+    borderRadius: 4,
+  },
 
   chapterCell: {
     color: "#999",
@@ -610,6 +635,7 @@ function ListRow({
               <span style={styles.aliasTag}>{novel.aliases[0]}</span>
             )}
             {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
+            <TagChips tags={novel.tags} />
           </div>
         </div>
       </td>
@@ -692,6 +718,7 @@ function GridCard({
       </div>
       <div style={styles.gridTitle}>{novel.canonical_title}</div>
       {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
+      <TagChips tags={novel.tags} />
       <span style={getStatusBadgeStyle(novel.status)}>
         {statusMeta(novel.status).label}
       </span>
@@ -841,6 +868,8 @@ export default function App() {
                 const chapterUntouched = !editTarget
                   || data.current_chapter_raw === editTarget.current_chapter_raw;
                 const authorUntouched = !editTarget || data.author === editTarget.author;
+                const tagsUntouched = !editTarget
+                  || JSON.stringify(data.tags) === JSON.stringify(editTarget.tags);
 
                 const payload = {
                   ...data,
@@ -848,6 +877,7 @@ export default function App() {
                     ? live.current_chapter_raw ?? ""
                     : data.current_chapter_raw,
                   author: authorUntouched && live ? live.author ?? "" : data.author,
+                  tags: tagsUntouched && live ? live.tags : data.tags,
                 };
 
                 await updateNovel(payload);

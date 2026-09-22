@@ -343,7 +343,7 @@ function makeDom() {
   }
 }
 
-// ── 9. content.js: the author is read off the page and reported once ─────────
+// ── 9. content.js: the page's author and tags are read and reported ──────────
 {
   const author = { textContent: "  Guiltythree  " };
   const cover = {
@@ -352,6 +352,12 @@ function makeDom() {
     naturalWidth: 400,
     naturalHeight: 600,
   };
+  const tagEls = [
+    { textContent: "LitRPG" },
+    { textContent: " Progression Fantasy " },
+    { textContent: "litrpg" }, // same tag, different case
+    { textContent: "" },       // stray element with nothing in it
+  ];
   const location = {
     href: "https://www.royalroad.com/fiction/99/shadow-slave",
     hostname: "www.royalroad.com",
@@ -366,7 +372,7 @@ function makeDom() {
       if (sel.includes("/profile/")) return author;
       return null;
     },
-    querySelectorAll: () => [cover],
+    querySelectorAll: (sel) => (sel.includes("tagsAdd") ? tagEls : []),
     addEventListener: () => {},
   };
 
@@ -384,12 +390,15 @@ function makeDom() {
   assert.ok(metadata, "an author on a supported site must be reported");
   assert.equal(metadata.payload.title, "Shadow Slave", "metadata must carry the resolved title");
   assert.equal(metadata.payload.author, "Guiltythree", "the author must be trimmed");
+  assert.deepEqual([...metadata.payload.tags], ["LitRPG", "Progression Fantasy"], "tags must be trimmed and de-duplicated");
+  assert.equal(metadata.payload.source, "royalroad", "tags must be labelled with the site they came from");
 
   timers[0]();
   const coverMsg = chrome.calls.messages.find((m) => m.type === "COVER_DETECTED");
   assert.equal(coverMsg.payload.author, "Guiltythree", "the author rides along with the cover");
+  assert.deepEqual([...coverMsg.payload.tags], ["LitRPG", "Progression Fantasy"], "the tags ride along with the cover");
   assert.equal(coverMsg.payload.domain, "royalroad.com");
-  console.log("\u2713 content.js reports the page's author and carries it with the cover");
+  console.log("\u2713 content.js reads the page's author and tags, and carries both with the cover");
 }
 
 // ── 10. background.js: metadata is written for a known novel, silently ───────
@@ -409,9 +418,29 @@ function makeDom() {
   await ctx.handleMetadataDetection({ title: "Shadow Slave", author: "Guiltythree" });
 
   const write = calls.find((c) => c.url.endsWith("/metadata"));
-  assert.deepEqual(write?.body, { novel_id: 5, author: "Guiltythree" }, "the matched novel gets the author");
+  assert.deepEqual(write?.body, {
+    novel_id: 5,
+    author: "Guiltythree",
+    tags: null,
+    source: null,
+  }, "the matched novel gets the author");
   assert.equal(chrome.calls.badge.length, 0, "passive metadata must never touch the badge");
   assertAuthed(calls, "background.js (metadata)");
+
+  // Tags from a supported site go to the same route, labelled with their source
+  calls.length = 0;
+  await ctx.handleMetadataDetection({
+    title: "Shadow Slave",
+    author: null,
+    tags: ["LitRPG", "Progression Fantasy"],
+    source: "royalroad",
+  });
+  assert.deepEqual(calls.find((c) => c.url.endsWith("/metadata"))?.body, {
+    novel_id: 5,
+    author: null,
+    tags: ["LitRPG", "Progression Fantasy"],
+    source: "royalroad",
+  }, "tags must be written with the site they came from");
 
   // A page for a novel the library doesn't have is the cover flow's business
   calls.length = 0;
@@ -420,13 +449,15 @@ function makeDom() {
   console.log("\u2713 background.js writes metadata only for novels already in the library");
 }
 
-// ── 11. popup.js: the author found on the novel page is saved with the add ────
+// ── 11. popup.js: the author and tags found on the novel page are saved ──────
 {
   const storage = {};
   const pending = {
     title: "Shadow Slave",
     coverUrl: "https://cdn.royalroadcdn.com/cover.jpg",
     author: "Guiltythree",
+    tags: ["LitRPG", "Progression Fantasy"],
+    source: "royalroad",
     domain: "royalroad.com",
     type: "add",
     tabId: 7,
@@ -443,8 +474,14 @@ function makeDom() {
   await tick();
 
   const quickAdd = calls.find((c) => c.url.endsWith("/quick-add"));
-  assert.equal(quickAdd?.body.author, "Guiltythree", "the detected author must be saved with the add");
-  console.log("\u2713 popup.js saves the author it detected on the novel page");
+  assert.deepEqual(quickAdd?.body, {
+    title: pending.title,
+    chapter_raw: "",
+    author: "Guiltythree",
+    tags: ["LitRPG", "Progression Fantasy"],
+    source: "royalroad",
+  }, "the detected author and tags must be saved with the add");
+  console.log("\u2713 popup.js saves the author and tags it detected on the novel page");
 }
 
 // ── 12. background.js: 'Save as Cover' passes the author on to the app ───────

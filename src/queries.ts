@@ -11,11 +11,23 @@ export interface NovelRow {
   notes: string;
   cover_url: string;
   author: string | null;
+  tags: string[];
   current_chapter_raw: string | null;
   chapter_sort: number | null;
   updated_at: string;
   aliases: string[];
   last_seen_url: string | null;
+}
+
+// tags are stored as a JSON array of strings; a bad value must not crash a view
+function parseTags(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((t) => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 // ── Reading log ───────────────────────────────────────────────────────────────
@@ -46,15 +58,30 @@ async function logReading(
 async function novelBefore(
   db: Database,
   novelId: number
-): Promise<{ status: string | null; chapter_raw: string | null }> {
-  const rows = await db.select<{ status: string; chapter_raw: string | null }[]>(
-    `SELECT n.status, p.chapter_raw
+): Promise<{
+  status: string | null;
+  chapter_raw: string | null;
+  tags: string | null;
+  tag_source: string | null;
+}> {
+  const rows = await db.select<{
+    status: string;
+    chapter_raw: string | null;
+    tags: string | null;
+    tag_source: string | null;
+  }[]>(
+    `SELECT n.status, n.tags, n.tag_source, p.chapter_raw
      FROM novels n
      LEFT JOIN progress p ON p.novel_id = n.id
      WHERE n.id = $1`,
     [novelId]
   );
-  return { status: rows[0]?.status ?? null, chapter_raw: rows[0]?.chapter_raw ?? null };
+  return {
+    status: rows[0]?.status ?? null,
+    chapter_raw: rows[0]?.chapter_raw ?? null,
+    tags: rows[0]?.tags ?? null,
+    tag_source: rows[0]?.tag_source ?? null,
+  };
 }
 
 // ── Fetch all novels with their current progress and aliases ──────────────────
@@ -63,7 +90,7 @@ export async function getAllNovels(): Promise<NovelRow[]> {
 
   const novels = await db.select<any[]>(`
     SELECT
-      n.id, n.canonical_title, n.status, n.notes, n.cover_url, n.author,
+      n.id, n.canonical_title, n.status, n.notes, n.cover_url, n.author, n.tags,
       p.chapter_raw as current_chapter_raw,
       p.chapter_sort,
       COALESCE(p.updated_at, n.updated_at) as updated_at,
@@ -90,6 +117,7 @@ export async function getAllNovels(): Promise<NovelRow[]> {
 
   return novels.map((n) => ({
     ...n,
+    tags: parseTags(n.tags),
     aliases: aliasesByNovel.get(n.id) ?? [],
   }));
 }
@@ -150,6 +178,7 @@ export async function updateNovel(data: {
   notes: string;
   cover_url: string;
   author: string;
+  tags: string[];
   current_chapter_raw: string;
   last_seen_url: string;
   aliases: string[];
@@ -159,11 +188,17 @@ export async function updateNovel(data: {
   const chapterRaw = data.current_chapter_raw.trim();
   const chapterSort = chapterRaw ? parseChapterSort(chapterRaw) : null;
 
+  // No tags is stored as NULL, so a later page visit can still fill them
+  const tags = data.tags.length ? JSON.stringify(data.tags) : null;
+  // Edited here → the user owns them; untouched → keep the source that captured
+  // them (e.g. the site the extension read them from)
+  const tagSource = tags === before.tags ? before.tag_source : tags ? "manual" : null;
+
   await db.execute(
     `UPDATE novels
      SET canonical_title=$1, status=$2, notes=$3, cover_url=$4, author=$5,
-         updated_at=datetime('now')
-     WHERE id=$6`,
+         tags=$6, tag_source=$7, updated_at=datetime('now')
+     WHERE id=$8`,
     [
       data.canonical_title,
       data.status,
@@ -171,6 +206,8 @@ export async function updateNovel(data: {
       data.cover_url,
       // Blank means "no author", not an empty string
       data.author.trim() || null,
+      tags,
+      tagSource,
       data.id,
     ]
   );

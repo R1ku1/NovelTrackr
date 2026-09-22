@@ -94,6 +94,50 @@ function extractAuthor() {
   return author ? author.replace(/^by\s+/i, "").trim() || null : null;
 }
 
+// Per-site tag selectors, tried in order — the first selector that yields
+// anything wins, so a site's navigation can't get mixed in with its tags.
+// These match each site's own tag links; verify against the live DOM when a
+// site changes (plan §4.2.4).
+const SITE_TAGS = {
+  "royalroad.com": {
+    source: "royalroad",
+    selectors: ["a[href*='tagsAdd=']", ".tags a", ".fiction-tag"],
+  },
+  "scribblehub.com": {
+    source: "scribblehub",
+    selectors: ["a[href*='series-finder/?sf=']", ".series-tags a", ".tags a"],
+  },
+  "novelfire.net": {
+    source: "novelfire",
+    selectors: ["a[href*='/genre/']", ".novel-tags a", ".tags a"],
+  },
+};
+
+const MAX_TAGS = 40;
+
+// NovelUpdates tags come from its own search flow (plan §4.2.1 Path B), and
+// every other site falls back to manual entry — nothing is ever guessed.
+function extractTags() {
+  const host = hostName();
+  const site = Object.keys(SITE_TAGS).find((k) => host === k || host.endsWith("." + k));
+  if (!site) return { source: null, tags: [] };
+
+  const config = SITE_TAGS[site];
+
+  for (const selector of config.selectors) {
+    const tags = [...document.querySelectorAll(selector)]
+      .map((el) => el.textContent.trim())
+      // A tag is a short label; anything longer is a chapter or a title
+      .filter((t) => t && t.length <= 60)
+      .filter((t, i, all) => all.findIndex((o) => o.toLowerCase() === t.toLowerCase()) === i)
+      .slice(0, MAX_TAGS);
+
+    if (tags.length > 0) return { source: config.source, tags };
+  }
+
+  return { source: config.source, tags: [] };
+}
+
 // Add this helper to detect if we're on an index/ToC page
 function isIndexPage() {
   const url = window.location.href.toLowerCase();
@@ -265,14 +309,16 @@ function run() {
   // Report what the page shows. The app only accepts this for a novel it
   // already tracks, so no badge or prompt is involved (plan §4.1).
   const author = extractAuthor();
-  if (author) {
+  const { source, tags } = extractTags();
+
+  if (author || tags.length > 0) {
     chrome.runtime.sendMessage({
       type: "METADATA_DETECTED",
-      payload: { title: indexTitle, author },
+      payload: { title: indexTitle, author, tags, source },
     }).catch((e) => console.log("[Noveltrackr] metadata message failed:", e));
   }
 
-  scheduleCoverDetection(indexTitle, { author });
+  scheduleCoverDetection(indexTitle, tags.length > 0 ? { author, tags, source } : { author });
 }
 
 // Run on load, also re-run on navigation for SPA sites

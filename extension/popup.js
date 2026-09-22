@@ -352,6 +352,17 @@ function renderCoverPrompt(body, cover) {
   };
 }
 
+// Page metadata rides along with the add, but only when the page offered it
+function pageMetadata(source) {
+  const fields = {};
+  if (source?.author) fields.author = source.author;
+  if (source?.tags?.length) {
+    fields.tags = source.tags;
+    fields.source = source.source;
+  }
+  return fields;
+}
+
 // Novel page whose title isn't in the library yet — add it (with its cover)
 function renderAddPrompt(body, cover) {
   body.innerHTML = `
@@ -379,8 +390,7 @@ function renderAddPrompt(body, cover) {
         body: JSON.stringify({
           title: cover.title,
           chapter_raw: "",
-          // Whatever the page showed rides along with the add
-          ...(cover.author ? { author: cover.author } : {}),
+          ...pageMetadata(cover),
         }),
       });
       const data = await res.json();

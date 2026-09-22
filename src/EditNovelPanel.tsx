@@ -5,7 +5,7 @@ import {
   TextInput,
   TextArea,
   StatusPicker,
-  AliasInput,
+  ChipInput,
   PanelShell,
   PanelHeader,
   PanelFooter,
@@ -25,6 +25,7 @@ export interface EditNovelData {
   notes: string;
   cover_url: string;
   aliases: string[];
+  tags: string[];
   updated_at: string;
   last_seen_url: string;
 }
@@ -314,9 +315,22 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
           {/* Aliases */}
           <div>
             <FieldLabel text="Aliases" />
-            <AliasInput
-              aliases={form.aliases}
+            <ChipInput
+              values={form.aliases}
               onChange={(v) => set("aliases", v)}
+              placeholder="e.g. TBATE, The Beginning..."
+              hint="Press Enter or comma to add. Searched alongside the main title."
+            />
+          </div>
+
+          {/* Tags */}
+          <div>
+            <FieldLabel text="Tags" />
+            <ChipInput
+              values={form.tags}
+              onChange={(v) => set("tags", v)}
+              placeholder="e.g. LitRPG, Progression Fantasy"
+              hint="Captured from the site you read on, or added here. Editing them makes them yours."
             />
           </div>
 

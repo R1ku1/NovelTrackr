@@ -152,34 +152,38 @@ export function StatusPicker({
   );
 }
 
-// ── Alias Input ───────────────────────────────────────────────────────────────
-export function AliasInput({
-  aliases,
+// ── Chip Input (aliases, tags) ────────────────────────────────────────────────
+export function ChipInput({
+  values,
   onChange,
+  placeholder,
+  hint,
 }: {
-  aliases: string[];
+  values: string[];
   onChange: (v: string[]) => void;
+  placeholder: string;
+  hint: string;
 }) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
 
-  function addAlias() {
+  function addValue() {
     const trimmed = draft.trim();
-    if (!trimmed || aliases.includes(trimmed)) { setDraft(""); return; }
-    onChange([...aliases, trimmed]);
+    if (!trimmed || values.includes(trimmed)) { setDraft(""); return; }
+    onChange([...values, trimmed]);
     setDraft("");
   }
 
-  function removeAlias(i: number) {
-    onChange(aliases.filter((_, idx) => idx !== i));
+  function removeValue(i: number) {
+    onChange(values.filter((_, idx) => idx !== i));
   }
 
   return (
     <div>
-      {aliases.length > 0 && (
+      {values.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-          {aliases.map((a, i) => (
+          {values.map((a, i) => (
             <span
               key={i}
               style={{
@@ -196,7 +200,7 @@ export function AliasInput({
             >
               {a}
               <button
-                onClick={() => removeAlias(i)}
+                onClick={() => removeValue(i)}
                 style={{
                   background: "none",
                   border: "none",
@@ -221,10 +225,10 @@ export function AliasInput({
           onChange={(e) => setDraft(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          placeholder="e.g. TBATE, The Beginning..."
+          placeholder={placeholder}
           onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); addAlias(); }
-            if (e.key === ",")     { e.preventDefault(); addAlias(); }
+            if (e.key === "Enter") { e.preventDefault(); addValue(); }
+            if (e.key === ",")     { e.preventDefault(); addValue(); }
           }}
           style={{
             flex: 1,
@@ -240,7 +244,7 @@ export function AliasInput({
           }}
         />
         <button
-          onClick={addAlias}
+          onClick={addValue}
           style={{
             background: "#1a1a22",
             border: "1px solid #2a2a35",
@@ -257,7 +261,7 @@ export function AliasInput({
         </button>
       </div>
       <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
-        Press Enter or comma to add. Searched alongside the main title.
+        {hint}
       </div>
     </div>
   );
