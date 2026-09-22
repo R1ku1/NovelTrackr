@@ -13,7 +13,7 @@ const read = (f) => readFileSync(path.join(dir, f), "utf8");
 
 const silent = { log() {}, error() {}, warn() {} };
 
-function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending = null } = {}) {
+function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending = null, nuSaved = null } = {}) {
   const calls = { badge: [], messages: [], tabs: [] };
   const listeners = {};
   return {
@@ -32,6 +32,7 @@ function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending =
         calls.messages.push(msg);
         if (msg.type === "GET_COVER_PENDING") return coverPending;
         if (msg.type === "GET_NU_PENDING") return nuPending;
+        if (msg.type === "GET_NU_SAVED") return nuSaved;
         return { ok: true };
       },
     },
@@ -887,6 +888,69 @@ function makeDom() {
   assert.equal(clearedTo, "/", "the parked query must be dropped while blocked");
   assert.equal(timers.length, 0, "and nothing may be scheduled on it");
   console.log("\u2713 content.js stands down when Cloudflare blocks NovelUpdates");
+}
+
+// ── 21. background.js + popup.js: the NU flow reports what it captured ──────
+{
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const novels = [{
+    id: 5,
+    canonical_title: "Shadow Slave",
+    aliases: [],
+    current_chapter_raw: null,
+  }];
+  const { calls, fetchStub } = makeFetch(novels);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  await ctx.handleMetadataDetection({
+    title: "Shadow Slave",
+    author: null,
+    tags: ["LitRPG", "Weak to Strong"],
+    source: "nu",
+    tabId: 7,
+  });
+
+  assert.equal(storage.nu_saved_7.count, 2, "the tags captured for this tab must be remembered");
+  assert.equal(storage.nu_saved_7.novelTitle, "Shadow Slave");
+  console.log("\u2713 background.js remembers what the NU flow captured for the tab");
+}
+
+// ── 22. popup.js: the tag report leads, the cover offer stays available ─────
+{
+  const storage = {};
+  const saved = { novelTitle: "Shadow Slave", count: 61 };
+  const cover = {
+    novelId: 5,
+    novelTitle: "Shadow Slave",
+    coverUrl: "https://cdn.novelupdates.com/images/cover.jpg",
+    type: "cover",
+    tabId: 7,
+  };
+  const chrome = makeChrome(storage, { badge: "+", coverPending: cover, nuSaved: saved });
+  const { calls, fetchStub } = makeFetch([]);
+  const { el, document } = makeDom();
+
+  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  assert.match(el("body").innerHTML, /61 tags found/, "the popup must say what the NU flow captured");
+  assert.match(el("body").innerHTML, /NovelUpdates/, "and where it came from");
+  assert.equal(typeof el("btnSaveCover").onclick, "function", "the cover offer must survive");
+
+  await el("btnSaveCover").onclick();
+  await tick();
+
+  const sent = chrome.calls.messages.find((m) => m.type === "SAVE_COVER");
+  assert.deepEqual(
+    { ...sent?.payload },
+    { novelId: 5, coverUrl: cover.coverUrl, author: undefined, tabId: 7 },
+    "the cover save must be requested with the cover this page had"
+  );
+  assert.match(el("body").innerHTML, /Cover saved/);
+  console.log("\u2713 popup.js reports the captured tags and keeps the cover offer");
 }
 
 console.log("\nAll extension self-checks passed.");

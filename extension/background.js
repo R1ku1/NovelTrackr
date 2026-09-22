@@ -59,6 +59,17 @@ async function getNuSeriesNovel(url) {
   return result[`nu_match:${url}`] ?? null;
 }
 
+// What the NU flow captured for this tab, so the popup can say so instead of
+// offering an unrelated action
+async function setNuSaved(tabId, data) {
+  await chrome.storage.local.set({ [`nu_saved_${tabId}`]: data });
+}
+
+async function getNuSaved(tabId) {
+  const result = await chrome.storage.local.get(`nu_saved_${tabId}`);
+  return result[`nu_saved_${tabId}`] || null;
+}
+
 async function handleCoverDetection({ title, coverUrl, domain, tabId, author, tags, source }) {
   const running = await isAppRunning();
   if (!running) {
@@ -202,7 +213,7 @@ async function handleNuConfirm(tabId, candidateUrl) {
 // Silent on purpose: no badge, no prompt. The page is evidence for a novel the
 // user already has; if it isn't in the library, the cover flow offers to add it.
 // The app fills only empty fields, so this can never overwrite a manual edit.
-async function handleMetadataDetection({ title, author, tags, source, url }) {
+async function handleMetadataDetection({ title, author, tags, source, url, tabId }) {
   const hasTags = Boolean(tags && tags.length);
   if (!author && !hasTags) return;
 
@@ -238,6 +249,12 @@ async function handleMetadataDetection({ title, author, tags, source, url }) {
     if (!res.ok) {
       console.error("[Noveltrackr] metadata write rejected:", await res.text());
       return;
+    }
+
+    // The popup reports what the NU flow captured, so a cover offer on the same
+    // page is not the only thing the user sees
+    if (source === "nu" && tabId && hasTags) {
+      await setNuSaved(tabId, { novelTitle: title, count: tags.length });
     }
 
     // NU tag names are canonical, so a series page also teaches the vocabulary
@@ -451,7 +468,8 @@ if (message.type === "COVER_DETECTED") {
   }
 
   if (message.type === "METADATA_DETECTED") {
-    handleMetadataDetection({ ...message.payload, url: sender.tab?.url }).catch(console.error);
+    handleMetadataDetection({ ...message.payload, url: sender.tab?.url, tabId: sender.tab?.id })
+      .catch(console.error);
     sendResponse({ ok: true });
     return false;
   }
@@ -460,6 +478,15 @@ if (message.type === "COVER_DETECTED") {
     handleNuSearch({ ...message.payload, tabId: sender.tab?.id }).catch(console.error);
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (message.type === "GET_NU_SAVED") {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (!tabId) { sendResponse(null); return; }
+      sendResponse(await getNuSaved(tabId));
+    });
+    return true;
   }
 
   if (message.type === "GET_NU_PENDING") {
@@ -518,7 +545,10 @@ if (message.type === "COVER_DETECTED") {
   if (message.type === "DISMISS_COVER") {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tabId = tabs[0]?.id;
-      if (tabId) await clearCoverPending(tabId);
+      if (tabId) {
+        await clearCoverPending(tabId);
+        await chrome.storage.local.remove(`nu_saved_${tabId}`);
+      }
       sendResponse({ ok: true });
     });
     return true;
@@ -530,6 +560,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.remove(`pending_${tabId}`);
   chrome.storage.local.remove(`cover_${tabId}`);
   chrome.storage.local.remove(`nu_${tabId}`);
+  chrome.storage.local.remove(`nu_saved_${tabId}`);
 });
 
 // ── Navigating away invalidates whatever was detected on the previous page ────
@@ -540,4 +571,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (!changeInfo.url) return;
   clearPending(tabId);
   clearCoverPending(tabId);
+  // The tag summary belongs to the page it was captured on
+  chrome.storage.local.remove(`nu_saved_${tabId}`);
 });

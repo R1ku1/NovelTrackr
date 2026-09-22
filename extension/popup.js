@@ -39,6 +39,10 @@ async function getCoverPending() {
 async function getNuPending() {
   return chrome.runtime.sendMessage({ type: "GET_NU_PENDING" });
 }
+
+async function getNuSaved() {
+  return chrome.runtime.sendMessage({ type: "GET_NU_SAVED" });
+}
 async function init() {
   const dot = document.getElementById("statusDot");
   const body = document.getElementById("body");
@@ -76,15 +80,21 @@ async function init() {
     return;
   }
 
-  const cover = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
-  if (cover) {
-    renderCoverPrompt(body, cover);
-    return;
-  }
-
   const nu = await getNuPending();
   if (nu) {
     renderNuCandidates(body, nu);
+    return;
+  }
+
+  // A series the user just picked: say what was saved, and keep the cover offer
+  const saved = await getNuSaved();
+  const cover = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
+  if (saved) {
+    renderNuSaved(body, saved, cover);
+    return;
+  }
+  if (cover) {
+    renderCoverPrompt(body, cover);
     return;
   }
 
@@ -107,17 +117,23 @@ async function init() {
       return;
     }
 
-    const c = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
-    if (c) {
-      clearInterval(poll);
-      renderCoverPrompt(body, c);
-      return;
-    }
-
     const n = await getNuPending();
     if (n) {
       clearInterval(poll);
       renderNuCandidates(body, n);
+      return;
+    }
+
+    const s = await getNuSaved();
+    const c = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
+    if (s) {
+      clearInterval(poll);
+      renderNuSaved(body, s, c);
+      return;
+    }
+    if (c) {
+      clearInterval(poll);
+      renderCoverPrompt(body, c);
       return;
     }
   }, 200);
@@ -352,6 +368,44 @@ function renderNuCandidates(body, pending) {
 
   document.getElementById("btnNoMatch").onclick = () => {
     chrome.runtime.sendMessage({ type: "DISMISS_NU" });
+    window.close();
+  };
+}
+
+// The series the user picked: report what was captured, and keep the cover offer
+function renderNuSaved(body, saved, cover) {
+  const found = saved.count === 1 ? "1 tag found" : `${saved.count} tags found`;
+  const showCover = cover && cover.type === "cover";
+
+  body.innerHTML = `
+    <div class="detection-label">NovelUpdates</div>
+    <div class="detected-title">${esc(saved.novelTitle)}</div>
+    <div class="detected-chapter">${esc(found)} on this series</div>
+    ${showCover ? `<button class="btn-update" id="btnSaveCover" style="margin-top:12px">Save as Cover</button>` : ""}
+    <button class="btn-ignore" id="btnDone" style="margin-top:8px">Done</button>
+  `;
+
+  if (showCover) {
+    document.getElementById("btnSaveCover").onclick = async () => {
+      const result = await chrome.runtime.sendMessage({
+        type: "SAVE_COVER",
+        payload: {
+          novelId: cover.novelId,
+          coverUrl: cover.coverUrl,
+          author: cover.author,
+          tabId: cover.tabId,
+        },
+      });
+
+      body.innerHTML = result?.ok
+        ? `<div class="success">✓ Cover saved</div>`
+        : `<div class="state-offline">Failed to save cover.</div>`;
+    };
+  }
+
+  document.getElementById("btnDone").onclick = () => {
+    // Dismissing clears this page's offers — cover and the tag summary alike
+    chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
     window.close();
   };
 }
