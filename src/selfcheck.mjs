@@ -34,6 +34,12 @@ check("export lives on the stats page", () => {
 check("add is a labelled floating button", () => {
   assert.match(app, /function AddButton/);
   assert.match(app, /aria-label="Add novel"/);
+  // The icon is drawn, not typed — a font's "+" is never optically centred
+  assert.match(app, /function AddButton[\s\S]{0,800}?<svg/, "the add icon is a text glyph again");
+  assert.ok(
+    !/getFabStyle[\s\S]{0,400}?fontSize/.test(app),
+    "the FAB is nudging a text glyph with font metrics again",
+  );
 });
 
 // ── Dialogs ───────────────────────────────────────────────────────────────────

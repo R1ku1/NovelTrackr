@@ -163,12 +163,9 @@ function getFabStyle(hovered: boolean): React.CSSProperties {
     height: 52,
     borderRadius: "50%",
     background: hovered ? "#ffffff" : "#e8e6e1",
-    color: "#0f0f13",
+    color: "#0f0f13", // the plus inherits this through currentColor
     border: "none",
-    fontSize: 24,
-    fontWeight: 400,
-    lineHeight: 1,
-    paddingBottom: 2,
+    padding: 0,
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
@@ -821,7 +818,16 @@ function AddButton({ onClick }: { onClick: () => void }) {
       onMouseLeave={() => setHovered(false)}
       style={getFabStyle(hovered)}
     >
-      +
+      {/* Drawn, not typed: a "+" glyph sits on its font's math axis, so it never
+          lands on the line box's centre, and no padding guess survives a font change */}
+      <svg width={20} height={20} viewBox="0 0 20 20" aria-hidden="true">
+        <path
+          d="M10 4v12M4 10h12"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+        />
+      </svg>
     </button>
   );
 }
