@@ -10,6 +10,7 @@ export interface NovelRow {
   status: Status;
   notes: string;
   cover_url: string;
+  author: string | null;
   current_chapter_raw: string | null;
   chapter_sort: number | null;
   updated_at: string;
@@ -62,7 +63,7 @@ export async function getAllNovels(): Promise<NovelRow[]> {
 
   const novels = await db.select<any[]>(`
     SELECT
-      n.id, n.canonical_title, n.status, n.notes, n.cover_url,
+      n.id, n.canonical_title, n.status, n.notes, n.cover_url, n.author,
       p.chapter_raw as current_chapter_raw,
       p.chapter_sort,
       COALESCE(p.updated_at, n.updated_at) as updated_at,
@@ -148,6 +149,7 @@ export async function updateNovel(data: {
   status: string;
   notes: string;
   cover_url: string;
+  author: string;
   current_chapter_raw: string;
   last_seen_url: string;
   aliases: string[];
@@ -159,10 +161,18 @@ export async function updateNovel(data: {
 
   await db.execute(
     `UPDATE novels
-     SET canonical_title=$1, status=$2, notes=$3, cover_url=$4,
+     SET canonical_title=$1, status=$2, notes=$3, cover_url=$4, author=$5,
          updated_at=datetime('now')
-     WHERE id=$5`,
-    [data.canonical_title, data.status, data.notes, data.cover_url, data.id]
+     WHERE id=$6`,
+    [
+      data.canonical_title,
+      data.status,
+      data.notes,
+      data.cover_url,
+      // Blank means "no author", not an empty string
+      data.author.trim() || null,
+      data.id,
+    ]
   );
 
   // Status only makes history when it actually moved (plan §3.3)

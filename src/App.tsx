@@ -14,11 +14,23 @@ interface Novel {
   status: Status;
   notes: string;
   cover_url: string | null;
+  author: string | null;
   current_chapter_raw: string | null;
   chapter_sort: number | null;
   updated_at: string;
   aliases: string[];
   last_seen_url: string | null;
+}
+
+// The panel edits a snapshot of the row — SQL NULLs become empty fields
+function toEditData(n: Novel): EditNovelData {
+  return {
+    ...n,
+    author: n.author ?? "",
+    current_chapter_raw: n.current_chapter_raw ?? "",
+    cover_url: n.cover_url ?? "",
+    last_seen_url: n.last_seen_url ?? "",
+  };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -310,6 +322,13 @@ const styles: Record<string, React.CSSProperties> = {
     marginLeft: 8,
     borderRadius: 4,
   },
+  authorLine: {
+    fontSize: 12,
+    fontStyle: "italic",
+    color: "#6a6a76",
+    marginTop: 3,
+  },
+
   chapterCell: {
     color: "#999",
     fontSize: 14,
@@ -590,6 +609,7 @@ function ListRow({
             {novel.aliases.length > 0 && (
               <span style={styles.aliasTag}>{novel.aliases[0]}</span>
             )}
+            {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
           </div>
         </div>
       </td>
@@ -671,6 +691,7 @@ function GridCard({
         }
       </div>
       <div style={styles.gridTitle}>{novel.canonical_title}</div>
+      {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
       <span style={getStatusBadgeStyle(novel.status)}>
         {statusMeta(novel.status).label}
       </span>
@@ -812,17 +833,22 @@ export default function App() {
             novel={editTarget}
             onClose={() => setEditTarget(null)}
             onSave={async (data: EditNovelData) => {
-              // The panel edits a snapshot. If the extension wrote a newer chapter while
-              // it was open, keep that instead of reverting real progress to stale data.
+              // The panel edits a snapshot. If the extension wrote anything newer
+              // while it was open, keep that instead of reverting it to stale data.
               try {
                 const before = await getAllNovels();
                 const live = before.find((n) => n.id === data.id) as Novel | undefined;
                 const chapterUntouched = !editTarget
                   || data.current_chapter_raw === editTarget.current_chapter_raw;
+                const authorUntouched = !editTarget || data.author === editTarget.author;
 
-                const payload = chapterUntouched && live
-                  ? { ...data, current_chapter_raw: live.current_chapter_raw ?? "" }
-                  : data;
+                const payload = {
+                  ...data,
+                  current_chapter_raw: chapterUntouched && live
+                    ? live.current_chapter_raw ?? ""
+                    : data.current_chapter_raw,
+                  author: authorUntouched && live ? live.author ?? "" : data.author,
+                };
 
                 await updateNovel(payload);
                 const updated = await getAllNovels();
@@ -939,12 +965,7 @@ export default function App() {
                   key={n.id} 
                   novel={n} 
                   onQuickUpdate={setQuickUpdateTarget} 
-                  onClick={() => setEditTarget({
-                    ...n,
-                    current_chapter_raw: n.current_chapter_raw ?? "",
-                    cover_url: n.cover_url ?? "",
-                    last_seen_url: n.last_seen_url ?? "",
-                    })}
+                  onClick={() => setEditTarget(toEditData(n))}
                 />
               ))}
             </tbody>
@@ -955,12 +976,7 @@ export default function App() {
             <div
               key={n.id}
               style={styles.compactCard}
-              onClick={() => setEditTarget({
-                ...n,
-                current_chapter_raw: n.current_chapter_raw ?? "",
-                cover_url: n.cover_url ?? "",
-                last_seen_url: n.last_seen_url ?? "",
-              })}
+              onClick={() => setEditTarget(toEditData(n))}
             >
               <div style={styles.compactTitle}>{n.canonical_title}</div>
               <span style={{ ...getStatusBadgeStyle(n.status), fontSize: 9, padding: "1px 6px" }}>
@@ -976,12 +992,7 @@ export default function App() {
                 key={n.id} 
                 novel={n} 
                 onQuickUpdate={setQuickUpdateTarget} 
-                onClick={() => setEditTarget({
-                  ...n,
-                  current_chapter_raw: n.current_chapter_raw ?? "",
-                  cover_url: n.cover_url ?? "",
-                  last_seen_url: n.last_seen_url ?? "",
-                  })}
+                onClick={() => setEditTarget(toEditData(n))}
                 />
             ))}
           </div>

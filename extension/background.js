@@ -36,12 +36,16 @@ async function clearCoverPending(tabId) {
   chrome.action.setBadgeText({ text: "", tabId });
 }
 
-async function handleCoverDetection({ title, coverUrl, domain, tabId }) {
+async function handleCoverDetection({ title, coverUrl, domain, tabId, author }) {
   const running = await isAppRunning();
   if (!running) {
     console.log("[Noveltrackr] app not running, skipping cover");
     return;
   }
+
+  // Only what the page actually offered — missing keys stay missing, so the
+  // popup can tell "no author detected" from "author is empty"
+  const meta = author ? { author } : {};
 
   try {
     const novels = await getNovels();
@@ -56,6 +60,7 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId }) {
         title,
         coverUrl,
         domain,
+        ...meta,
         type: "add",
         tabId,
       });
@@ -69,6 +74,7 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId }) {
       title,
       coverUrl,
       domain,
+      ...meta,
       novelId: matches[0].id,
       novelTitle: matches[0].canonical_title,
       type: "cover",
@@ -80,6 +86,41 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId }) {
     chrome.action.setBadgeBackgroundColor({ color: "#a78bfa", tabId });
   } catch (e) {
     console.error("[Noveltrackr] handleCoverDetection failed:", e);
+  }
+}
+
+// ── Metadata from a page we already track ─────────────────────────────────────
+// Silent on purpose: no badge, no prompt. The page is evidence for a novel the
+// user already has; if it isn't in the library, the cover flow offers to add it.
+// The app fills only empty fields, so this can never overwrite a manual edit.
+async function handleMetadataDetection({ title, author }) {
+  if (!author) return;
+
+  const running = await isAppRunning();
+  if (!running) {
+    console.log("[Noveltrackr] app not running, skipping metadata");
+    return;
+  }
+
+  try {
+    const novels = await getNovels();
+    const matches = findMatches(title, novels);
+    if (matches.length === 0) {
+      console.log("[Noveltrackr] metadata for unknown novel, ignoring:", title);
+      return;
+    }
+
+    const res = await fetch(`${API}/metadata`, {
+      method: "POST",
+      headers: API_HEADERS,
+      body: JSON.stringify({ novel_id: matches[0].id, author }),
+    });
+
+    if (!res.ok) {
+      console.error("[Noveltrackr] metadata write rejected:", await res.text());
+    }
+  } catch (e) {
+    console.error("[Noveltrackr] handleMetadataDetection failed:", e);
   }
 }
 
@@ -280,6 +321,12 @@ if (message.type === "COVER_DETECTED") {
   return false;
 }
 
+  if (message.type === "METADATA_DETECTED") {
+    handleMetadataDetection(message.payload).catch(console.error);
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.type === "GET_COVER_PENDING") {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tabId = tabs[0]?.id;
@@ -291,12 +338,12 @@ if (message.type === "COVER_DETECTED") {
   }
 
   if (message.type === "SAVE_COVER") {
-    const { novelId, coverUrl, tabId } = message.payload;
+    const { novelId, coverUrl, author, tabId } = message.payload;
     
     fetch(`${API}/cover`, {
       method: "POST",
       headers: API_HEADERS,
-      body: JSON.stringify({ novel_id: novelId, cover_url: coverUrl }),
+      body: JSON.stringify({ novel_id: novelId, cover_url: coverUrl, author: author ?? null }),
     })
     .then(async (res) => {
       const data = await res.json();

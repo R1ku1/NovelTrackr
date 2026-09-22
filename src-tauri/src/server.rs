@@ -58,6 +58,7 @@ pub struct UpdateProgressPayload {
 pub struct QuickAddPayload {
     pub title: String,
     pub chapter_raw: String,
+    pub author: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -65,6 +66,17 @@ pub struct MappingPayload {
     pub domain: String,
     pub detected_title: String,
     pub novel_id: i64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MetadataPayload {
+    pub novel_id: i64,
+    pub author: Option<String>,
+}
+
+/// A trimmed field, or None when the page gave us nothing usable
+fn text_field(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|v| !v.is_empty())
 }
 
 fn cors_headers() -> Vec<Header> {
@@ -101,12 +113,38 @@ fn json_response(body: String, status: u16) -> Response<std::io::Cursor<Vec<u8>>
     response
 }
 
-fn save_cover(db_path: &str, novel_id: i64, cover_url: &str) -> Result<(), String> {
+/// Saves the cover a page offered. The author comes from the same page, so it
+/// rides along — but it only ever fills a gap (see save_metadata).
+fn save_cover(
+    db_path: &str,
+    novel_id: i64,
+    cover_url: &str,
+    author: Option<&str>,
+) -> Result<(), String> {
     let conn = open_db(db_path)?;
     conn.execute(
-        "UPDATE novels SET cover_url = ?1 WHERE id = ?2",
-        rusqlite::params![cover_url, novel_id],
+        "UPDATE novels
+            SET cover_url = ?1,
+                author = COALESCE(NULLIF(author, ''), ?2)
+          WHERE id = ?3",
+        rusqlite::params![cover_url, author, novel_id],
     ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Metadata a page offered for a novel already in the library. It only fills
+/// empty fields: a visit must never throw away what the user typed (plan §4.1).
+fn save_metadata(db_path: &str, payload: &MetadataPayload) -> Result<(), String> {
+    let conn = open_db(db_path)?;
+
+    if let Some(author) = text_field(payload.author.as_deref()) {
+        conn.execute(
+            "UPDATE novels SET author = ?1
+             WHERE id = ?2 AND (author IS NULL OR author = '')",
+            rusqlite::params![author, payload.novel_id],
+        ).map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -231,6 +269,24 @@ pub fn start_server_on(db_path: String, addr: &str) {
                     }
                 }
 
+                // Metadata captured from a page the user is already reading.
+                // No badge, no prompt: the novel was matched, so the page is
+                // evidence for it (plan §4.1).
+                ("POST", "/metadata") => {
+                    let mut body = String::new();
+                    request.as_reader().read_to_string(&mut body).unwrap_or(0);
+
+                    match serde_json::from_str::<MetadataPayload>(&body) {
+                        Ok(payload) => {
+                            match save_metadata(&db_path, &payload) {
+                                Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
+                                Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                            }
+                        }
+                        Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 400),
+                    }
+                }
+
                 ("POST", "/cover") => {
                     let mut body = String::new();
                     request.as_reader().read_to_string(&mut body).unwrap_or(0);
@@ -239,11 +295,13 @@ pub fn start_server_on(db_path: String, addr: &str) {
                     struct CoverPayload {
                         novel_id: i64,
                         cover_url: String,
+                        author: Option<String>,
                     }
 
                     match serde_json::from_str::<CoverPayload>(&body) {
                         Ok(payload) => {
-                            match save_cover(&db_path, payload.novel_id, &payload.cover_url) {
+                            let author = text_field(payload.author.as_deref());
+                            match save_cover(&db_path, payload.novel_id, &payload.cover_url, author) {
                                 Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
                                 Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
                             }
@@ -531,7 +589,16 @@ fn quick_add_novel(db_path: &str, payload: &QuickAddPayload) -> Result<QuickAddR
             rusqlite::params![id, payload.chapter_raw, chapter_sort],
         ).map_err(|e| e.to_string())?;
     }
-    
+
+    // The page's author rides along with the add, through the same rules the
+    // /metadata route uses (fill a gap, never overwrite)
+    if payload.author.is_some() {
+        save_metadata(db_path, &MetadataPayload {
+            novel_id: id,
+            author: payload.author.clone(),
+        })?;
+    }
+
     Ok(QuickAddResult::Added(id))
 }
 
@@ -612,6 +679,77 @@ mod tests {
             "seeded entries must carry a real unix timestamp: {:?}",
             rows
         );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A page may fill an author the library is missing, but it must never
+    /// overwrite one that is already there — manual entry wins (plan §4.1).
+    #[test]
+    fn page_metadata_fills_an_author_but_never_overwrites_one() {
+        let path = temp_db("metadata");
+        migrate(&path, MIGRATIONS.len());
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO novels (canonical_title, status, author) VALUES
+                   ('No Author Yet', 'planned', NULL),
+                   ('Already Has One', 'planned', 'Manual Name')",
+                [],
+            ).unwrap();
+        }
+
+        let save = |id: i64, author: &str| {
+            save_metadata(
+                path.to_str().unwrap(),
+                &MetadataPayload { novel_id: id, author: Some(author.to_string()) },
+            ).unwrap();
+        };
+
+        save(1, "  Guiltythree  ");
+        save(2, "Guiltythree");
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let authors: Vec<(i64, String)> = conn
+            .prepare("SELECT id, author FROM novels ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(
+            authors,
+            vec![
+                (1, "Guiltythree".to_string()),
+                (2, "Manual Name".to_string()),
+            ],
+            "an empty author is filled (trimmed), an existing one is left alone"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The extension's add carries the author it read off the page.
+    #[test]
+    fn quick_add_keeps_the_author_the_page_offered() {
+        let path = temp_db("quickadd-author");
+        migrate(&path, MIGRATIONS.len());
+
+        quick_add_novel(
+            path.to_str().unwrap(),
+            &QuickAddPayload {
+                title: "Shadow Slave".to_string(),
+                chapter_raw: String::new(),
+                author: Some(" Guiltythree ".to_string()),
+            },
+        ).unwrap();
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let author: String = conn
+            .query_row("SELECT author FROM novels", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(author, "Guiltythree");
 
         let _ = std::fs::remove_file(&path);
     }
@@ -779,7 +917,11 @@ mod tests {
 
         let result = quick_add_novel(
             path.to_str().unwrap(),
-            &QuickAddPayload { title: "Self Test".to_string(), chapter_raw: String::new() },
+            &QuickAddPayload {
+                title: "Self Test".to_string(),
+                chapter_raw: String::new(),
+                author: None,
+            },
         )
         .unwrap();
         let QuickAddResult::Added(id) = result else {

@@ -27,7 +27,7 @@ function makeChrome(storage = {}, { badge = "", coverPending = null } = {}) {
       },
     },
     runtime: {
-      onMessage: { addListener() {} },
+      onMessage: { addListener(fn) { listeners.message = fn; } },
       sendMessage: async (msg) => {
         calls.messages.push(msg);
         return msg.type === "GET_COVER_PENDING" ? coverPending : { ok: true };
@@ -343,5 +343,140 @@ function makeDom() {
   }
 }
 
-console.log("\nAll extension self-checks passed.");
+// ── 9. content.js: the author is read off the page and reported once ─────────
+{
+  const author = { textContent: "  Guiltythree  " };
+  const cover = {
+    src: "https://cdn.royalroadcdn.com/cover.jpg",
+    complete: true,
+    naturalWidth: 400,
+    naturalHeight: 600,
+  };
+  const location = {
+    href: "https://www.royalroad.com/fiction/99/shadow-slave",
+    hostname: "www.royalroad.com",
+  };
 
+  const timers = [];
+  const chrome = makeChrome({});
+  const document = {
+    title: "Shadow Slave | Royal Road",
+    querySelector: (sel) => {
+      if (sel.includes("img")) return cover;
+      if (sel.includes("/profile/")) return author;
+      return null;
+    },
+    querySelectorAll: () => [cover],
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: (id) => { if (id !== null && id !== undefined) timers[id] = null; },
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const metadata = chrome.calls.messages.find((m) => m.type === "METADATA_DETECTED");
+  assert.ok(metadata, "an author on a supported site must be reported");
+  assert.equal(metadata.payload.title, "Shadow Slave", "metadata must carry the resolved title");
+  assert.equal(metadata.payload.author, "Guiltythree", "the author must be trimmed");
+
+  timers[0]();
+  const coverMsg = chrome.calls.messages.find((m) => m.type === "COVER_DETECTED");
+  assert.equal(coverMsg.payload.author, "Guiltythree", "the author rides along with the cover");
+  assert.equal(coverMsg.payload.domain, "royalroad.com");
+  console.log("\u2713 content.js reports the page's author and carries it with the cover");
+}
+
+// ── 10. background.js: metadata is written for a known novel, silently ───────
+{
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const novels = [{
+    id: 5,
+    canonical_title: "Shadow Slave",
+    aliases: [],
+    current_chapter_raw: "Chapter 220",
+  }];
+  const { calls, fetchStub } = makeFetch(novels);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  await ctx.handleMetadataDetection({ title: "Shadow Slave", author: "Guiltythree" });
+
+  const write = calls.find((c) => c.url.endsWith("/metadata"));
+  assert.deepEqual(write?.body, { novel_id: 5, author: "Guiltythree" }, "the matched novel gets the author");
+  assert.equal(chrome.calls.badge.length, 0, "passive metadata must never touch the badge");
+  assertAuthed(calls, "background.js (metadata)");
+
+  // A page for a novel the library doesn't have is the cover flow's business
+  calls.length = 0;
+  await ctx.handleMetadataDetection({ title: "Something Else Entirely", author: "Nobody" });
+  assert.equal(calls.filter((c) => c.url.endsWith("/metadata")).length, 0, "unknown pages must not write metadata");
+  console.log("\u2713 background.js writes metadata only for novels already in the library");
+}
+
+// ── 11. popup.js: the author found on the novel page is saved with the add ────
+{
+  const storage = {};
+  const pending = {
+    title: "Shadow Slave",
+    coverUrl: "https://cdn.royalroadcdn.com/cover.jpg",
+    author: "Guiltythree",
+    domain: "royalroad.com",
+    type: "add",
+    tabId: 7,
+  };
+  const chrome = makeChrome(storage, { badge: "+", coverPending: pending });
+  const { calls, fetchStub } = makeFetch([]);
+  const { el, document } = makeDom();
+
+  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  await el("btnAdd").onclick();
+  await tick();
+
+  const quickAdd = calls.find((c) => c.url.endsWith("/quick-add"));
+  assert.equal(quickAdd?.body.author, "Guiltythree", "the detected author must be saved with the add");
+  console.log("\u2713 popup.js saves the author it detected on the novel page");
+}
+
+// ── 12. background.js: 'Save as Cover' passes the author on to the app ───────
+{
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const novels = [{
+    id: 5,
+    canonical_title: "Shadow Slave",
+    aliases: [],
+    current_chapter_raw: null,
+  }];
+  const { calls, fetchStub } = makeFetch(novels);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  let replied = null;
+  chrome.listeners.message(
+    { type: "SAVE_COVER", payload: { novelId: 5, coverUrl: "https://cdn.royalroadcdn.com/cover.jpg", author: "Guiltythree", tabId: 7 } },
+    {},
+    (r) => { replied = r; }
+  );
+  await tick();
+
+  const cover = calls.find((c) => c.url.endsWith("/cover"));
+  assert.deepEqual(cover?.body, {
+    novel_id: 5,
+    cover_url: "https://cdn.royalroadcdn.com/cover.jpg",
+    author: "Guiltythree",
+  });
+  assert.deepEqual({ ...replied }, { ok: true }, "the popup must be told the write succeeded");
+  console.log("\u2713 background.js passes the page's author through the cover save");
+}
+
+console.log("\nAll extension self-checks passed.");

@@ -55,6 +55,45 @@ function extractGeneric() {
   return null;
 }
 
+// ── Metadata (plan §4.1) ──────────────────────────────────────────────────────
+// Per-site author selectors, tried in order — the first one with text wins.
+// Nothing is guessed: no match means the field stays empty.
+const SITE_AUTHOR = {
+  "royalroad.com":   ["a[href*='/profile/']", ".fic-title .author", ".author"],
+  "scribblehub.com": ["a[href*='/profile/']", ".series-author", ".author"],
+  "novelfire.net":   [".novel-detail .author a", ".author a", ".author"],
+};
+
+// Sites that aren't listed here still get the standard hints
+const GENERIC_AUTHOR = ["[rel='author']"];
+
+function hostName() {
+  return window.location.hostname.replace(/^www\./, "");
+}
+
+function firstText(selectors) {
+  for (const selector of selectors) {
+    const el = document.querySelector(selector);
+    const text = el?.textContent?.trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function extractAuthor() {
+  const host = hostName();
+  const site = Object.keys(SITE_AUTHOR).find((k) => host === k || host.endsWith("." + k));
+
+  const author =
+    firstText(site ? SITE_AUTHOR[site] : []) ??
+    firstText(GENERIC_AUTHOR) ??
+    document.querySelector("meta[name='author']")?.getAttribute("content")?.trim() ??
+    null;
+
+  // Author blocks commonly read "by Name"
+  return author ? author.replace(/^by\s+/i, "").trim() || null : null;
+}
+
 // Add this helper to detect if we're on an index/ToC page
 function isIndexPage() {
   const url = window.location.href.toLowerCase();
@@ -134,7 +173,7 @@ function extractCoverImage() {
 // second load event) must not leave a stale timer pointing at the previous page.
 let coverTimer = null;
 
-function scheduleCoverDetection(indexTitle) {
+function scheduleCoverDetection(indexTitle, meta = {}) {
   clearTimeout(coverTimer);
 
   const scheduledHref = window.location.href;
@@ -161,7 +200,8 @@ function scheduleCoverDetection(indexTitle) {
       payload: {
         title: indexTitle,
         coverUrl,
-        domain: window.location.hostname.replace("www.", ""),
+        domain: hostName(),
+        ...meta,
       }
     }).catch((e) => console.log("[Noveltrackr] cover message failed:", e));
   }, 1000);
@@ -181,7 +221,7 @@ function run() {
         title: result.title,
         chapter: result.chapter,
         url: window.location.href,
-        domain: window.location.hostname.replace("www.", ""),
+        domain: hostName(),
       }
     }).catch((e) => console.log("[Noveltrackr] sendMessage failed:", e));
     return;
@@ -222,7 +262,17 @@ function run() {
 
   console.log("[Noveltrackr] index page, title:", indexTitle);
 
-  scheduleCoverDetection(indexTitle);
+  // Report what the page shows. The app only accepts this for a novel it
+  // already tracks, so no badge or prompt is involved (plan §4.1).
+  const author = extractAuthor();
+  if (author) {
+    chrome.runtime.sendMessage({
+      type: "METADATA_DETECTED",
+      payload: { title: indexTitle, author },
+    }).catch((e) => console.log("[Noveltrackr] metadata message failed:", e));
+  }
+
+  scheduleCoverDetection(indexTitle, { author });
 }
 
 // Run on load, also re-run on navigation for SPA sites

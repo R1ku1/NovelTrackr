@@ -333,6 +333,7 @@ function renderCoverPrompt(body, cover) {
       payload: {
         novelId: cover.novelId,
         coverUrl: cover.coverUrl,
+        author: cover.author,
         tabId: cover.tabId,
       }
     });
@@ -375,7 +376,12 @@ function renderAddPrompt(body, cover) {
       const res = await fetch(`${API}/quick-add`, {
         method: "POST",
         headers: API_HEADERS,
-        body: JSON.stringify({ title: cover.title, chapter_raw: "" }),
+        body: JSON.stringify({
+          title: cover.title,
+          chapter_raw: "",
+          // Whatever the page showed rides along with the add
+          ...(cover.author ? { author: cover.author } : {}),
+        }),
       });
       const data = await res.json();
 

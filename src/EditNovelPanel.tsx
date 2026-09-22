@@ -20,6 +20,7 @@ export interface EditNovelData {
   id: number;
   canonical_title: string;
   status: Status;
+  author: string;
   current_chapter_raw: string;
   notes: string;
   cover_url: string;
@@ -195,6 +196,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
       await onSave({
         ...form,
         canonical_title: form.canonical_title.trim(),
+        author: form.author.trim(),
         current_chapter_raw: form.current_chapter_raw.trim(),
         cover_url: form.cover_url.trim(),
         notes: form.notes.trim(),
@@ -278,6 +280,19 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
                 {errors.title}
               </div>
             )}
+          </div>
+
+          {/* Author */}
+          <div>
+            <FieldLabel text="Author" />
+            <TextInput
+              value={form.author}
+              onChange={(v) => set("author", v)}
+              placeholder="e.g. Guiltythree"
+            />
+            <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+              Filled in automatically when you visit the novel's page. Editing it here wins.
+            </div>
           </div>
 
           {/* Status */}
