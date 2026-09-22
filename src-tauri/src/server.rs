@@ -1,5 +1,6 @@
 use tiny_http::{Server, Response, Header, Method};
 use serde::{Deserialize, Serialize};
+use rusqlite::OptionalExtension;
 
 /// Requests must carry this header. It is not CORS-safelisted, so a browser page
 /// would have to preflight first — and its preflight never matches our CORS
@@ -304,11 +305,37 @@ fn get_novels_for_extension(db_path: &str) -> Result<Vec<NovelSummary>, String> 
     Ok(result)
 }
 
+/// One append-only row of reading history. Rows are never rewritten — the
+/// novel's own row keeps its current state (plan §3.3).
+fn log_progress(
+    conn: &rusqlite::Connection,
+    novel_id: i64,
+    chapter: Option<f64>,
+) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO reading_log (novel_id, action, chapter, timestamp)
+         VALUES (?1, 'progressed', ?2, strftime('%s','now'))",
+        rusqlite::params![novel_id, chapter],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn update_progress_and_source(db_path: &str, payload: &UpdateProgressPayload) -> Result<(), String> {
     let conn = open_db(db_path)?;
     
     // Parse chapter sort number
     let chapter_sort = parse_chapter_sort(&payload.chapter_raw);
+
+    // Read the chapter this novel was on before writing, so a page reload does
+    // not add a second entry for the same chapter
+    let previous: Option<String> = conn
+        .query_row(
+            "SELECT chapter_raw FROM progress WHERE novel_id = ?1",
+            rusqlite::params![payload.novel_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
 
     // Upsert progress
     conn.execute(
@@ -320,6 +347,10 @@ fn update_progress_and_source(db_path: &str, payload: &UpdateProgressPayload) ->
            updated_at=excluded.updated_at",
         rusqlite::params![payload.novel_id, payload.chapter_raw, chapter_sort],
     ).map_err(|e| e.to_string())?;
+
+    if previous.as_deref() != Some(payload.chapter_raw.as_str()) {
+        log_progress(&conn, payload.novel_id, chapter_sort)?;
+    }
 
     // Only one preferred source per novel — the UI reads with LIMIT 1
     conn.execute(
@@ -580,6 +611,52 @@ mod tests {
             rows.iter().all(|r| r.3 > 1_600_000_000),
             "seeded entries must carry a real unix timestamp: {:?}",
             rows
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The extension's progress write must reach the log once per real change —
+    /// the same chapter arriving again (page reload, re-open) must not add a row.
+    #[test]
+    fn extension_progress_is_logged_once_per_change() {
+        let path = temp_db("progress");
+        migrate(&path, MIGRATIONS.len());
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO novels (canonical_title, status) VALUES ('Shadow Slave', 'reading')",
+                [],
+            ).unwrap();
+        }
+
+        let payload = |chapter: &str| UpdateProgressPayload {
+            novel_id: 1,
+            chapter_raw: chapter.to_string(),
+            source_url: "https://www.royalroad.com/fiction/1/shadow-slave/chapter/2".to_string(),
+            domain: "royalroad.com".to_string(),
+        };
+
+        update_progress_and_source(path.to_str().unwrap(), &payload("Chapter 221")).unwrap();
+        update_progress_and_source(path.to_str().unwrap(), &payload("Chapter 221")).unwrap();
+        update_progress_and_source(path.to_str().unwrap(), &payload("Chapter 222")).unwrap();
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let logged: Vec<(String, Option<i64>)> = conn
+            .prepare("SELECT action, chapter FROM reading_log ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(
+            logged,
+            vec![
+                ("progressed".to_string(), Some(221)),
+                ("progressed".to_string(), Some(222)),
+            ],
+            "only a real chapter change may be logged"
         );
 
         let _ = std::fs::remove_file(&path);

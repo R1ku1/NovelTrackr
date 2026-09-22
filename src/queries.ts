@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import type Database from "@tauri-apps/plugin-sql";
 import type { Status } from "./formComponents";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -14,6 +15,45 @@ export interface NovelRow {
   updated_at: string;
   aliases: string[];
   last_seen_url: string | null;
+}
+
+// ── Reading log ───────────────────────────────────────────────────────────────
+// Append-only history of reading activity (plan §3.3). Entries are never
+// updated or deleted — the novel's own row carries its current state.
+const STATUS_ACTIONS: Record<string, string> = {
+  reading: "started",
+  completed: "completed",
+  dropped: "dropped",
+  paused: "paused",
+};
+
+async function logReading(
+  db: Database,
+  novelId: number,
+  action: string,
+  chapter: number | null
+): Promise<void> {
+  await db.execute(
+    `INSERT INTO reading_log (novel_id, action, chapter, timestamp)
+     VALUES ($1, $2, $3, strftime('%s','now'))`,
+    [novelId, action, chapter]
+  );
+}
+
+// What the novel looked like before a write, so the log only records real
+// changes and a repeated save stays a no-op.
+async function novelBefore(
+  db: Database,
+  novelId: number
+): Promise<{ status: string | null; chapter_raw: string | null }> {
+  const rows = await db.select<{ status: string; chapter_raw: string | null }[]>(
+    `SELECT n.status, p.chapter_raw
+     FROM novels n
+     LEFT JOIN progress p ON p.novel_id = n.id
+     WHERE n.id = $1`,
+    [novelId]
+  );
+  return { status: rows[0]?.status ?? null, chapter_raw: rows[0]?.chapter_raw ?? null };
 }
 
 // ── Fetch all novels with their current progress and aliases ──────────────────
@@ -74,14 +114,21 @@ export async function addNovel(data: {
   if (novelId === undefined) throw new Error("Insert failed — no ID returned");
 
   // Insert progress row if chapter provided
-  if (data.current_chapter_raw.trim()) {
-    const chapterSort = parseChapterSort(data.current_chapter_raw);
+  const chapterRaw = data.current_chapter_raw.trim();
+  const chapterSort = chapterRaw ? parseChapterSort(chapterRaw) : null;
+
+  if (chapterRaw) {
     await db.execute(
       `INSERT INTO progress (novel_id, chapter_raw, chapter_sort)
        VALUES ($1, $2, $3)`,
-      [novelId, data.current_chapter_raw, chapterSort]
+      [novelId, chapterRaw, chapterSort]
     );
   }
+
+  // A novel added part-way in already has a status worth recording. 'planned'
+  // has no action — it never started.
+  const action = STATUS_ACTIONS[data.status];
+  if (action) await logReading(db, novelId, action, chapterSort);
 
   // Insert aliases
   for (const alias of data.aliases) {
@@ -106,6 +153,9 @@ export async function updateNovel(data: {
   aliases: string[];
 }): Promise<void> {
   const db = await getDb();
+  const before = await novelBefore(db, data.id);
+  const chapterRaw = data.current_chapter_raw.trim();
+  const chapterSort = chapterRaw ? parseChapterSort(chapterRaw) : null;
 
   await db.execute(
     `UPDATE novels
@@ -115,10 +165,14 @@ export async function updateNovel(data: {
     [data.canonical_title, data.status, data.notes, data.cover_url, data.id]
   );
 
+  // Status only makes history when it actually moved (plan §3.3)
+  const action = STATUS_ACTIONS[data.status];
+  if (action && before.status !== data.status) {
+    await logReading(db, data.id, action, chapterSort);
+  }
+
   // Upsert progress — an empty field means "no progress", so drop the row
-  const chapterRaw = data.current_chapter_raw.trim();
   if (chapterRaw) {
-    const chapterSort = parseChapterSort(chapterRaw);
     await db.execute(
       `INSERT INTO progress (novel_id, chapter_raw, chapter_sort, updated_at)
        VALUES ($1, $2, $3, datetime('now'))
@@ -128,6 +182,11 @@ export async function updateNovel(data: {
          updated_at=excluded.updated_at`,
       [data.id, chapterRaw, chapterSort]
     );
+
+    // Re-saving the same chapter is not progress
+    if (before.chapter_raw !== chapterRaw) {
+      await logReading(db, data.id, "progressed", chapterSort);
+    }
   } else {
     await db.execute(`DELETE FROM progress WHERE novel_id=$1`, [data.id]);
   }
@@ -173,6 +232,7 @@ export async function updateProgress(
 ): Promise<void> {
   const db = await getDb();
   const chapterSort = parseChapterSort(chapterRaw);
+  const before = await novelBefore(db, novelId);
 
   await db.execute(
     `INSERT INTO progress (novel_id, chapter_raw, chapter_sort, updated_at)
@@ -183,6 +243,11 @@ export async function updateProgress(
        updated_at=excluded.updated_at`,
     [novelId, chapterRaw, chapterSort]
   );
+
+  // Re-opening the quick update and confirming the same chapter is not progress
+  if (chapterRaw.trim() && before.chapter_raw !== chapterRaw.trim()) {
+    await logReading(db, novelId, "progressed", chapterSort);
+  }
 }
 
 // ── Delete a novel ────────────────────────────────────────────────────────────
