@@ -374,7 +374,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                 <MiniBtn
                   label="Find on NU"
-                  title="Search NovelUpdates for this title and pick the right series — its tags come back to the library"
+                  title="Opens NovelUpdates with this title in its search box — press Enter there, pick the right series, and its tags come back"
                   onClick={() => {
                     // Title only: NU's search is title-oriented, and a title plus
                     // author narrows it to nothing. The query rides in the fragment

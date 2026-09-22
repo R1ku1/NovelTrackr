@@ -180,12 +180,14 @@ function isNuPage(pathPrefix) {
 }
 
 // ── NovelUpdates search flow (plan §4.2.1 Path B) ─────────────────────────────
-// The app can only hand us a URL, so it parks the query in the fragment (which is
-// never sent to NU) and we run NU's own search box. That way the site decides
-// where its results live and no URL format has to be guessed.
+// NU is behind Cloudflare, and bot management scores "form submitted by script,
+// from a page loaded a second ago, with no interaction" exactly like automation.
+// So the extension only *fills* NU's own search box (or offers a link) and the
+// user runs the search: every request NU sees is one the user made.
 const NU_HASH_MARKER = "noveltrackr=";
 const NU_SEARCH_BOX = "input[name='s'], #s, input[type='search']";
 const NU_SEARCH_PARAMS = ["s", "sh"];
+const NU_HINT_ID = "noveltrackr-search-hint";
 const MAX_CANDIDATES = 10;
 
 function decodeParam(value) {
@@ -235,18 +237,60 @@ function clearSearchMarker() {
   }
 }
 
-// Runs NU's own search box, so the site picks the results URL. False when the
-// page has no search form we recognise — the caller then navigates instead.
-function submitNuSearch(query) {
+// What NU's own search URL looks like for a query (plan §8.1)
+function nuSearchUrl(query) {
+  return `https://www.novelupdates.com/?s=${encodeURIComponent(query)}`;
+}
+
+// A small chip telling the user what to do next. Touches the page, never the
+// network — NU sees nothing until the user acts.
+function showSearchHint(query, link) {
+  if (!document.body || typeof document.createElement !== "function") return;
+
+  const hint = document.createElement("div");
+  hint.id = NU_HINT_ID;
+  hint.style.cssText = [
+    "position:fixed",
+    "right:16px",
+    "bottom:16px",
+    "z-index:2147483647",
+    "max-width:340px",
+    "padding:10px 14px",
+    "border:1px solid #2a2a35",
+    "border-radius:8px",
+    "background:#0f0f13",
+    "color:#e8e6e1",
+    "font:12px/1.4 Georgia, 'Times New Roman', serif",
+    "box-shadow:0 4px 16px rgba(0,0,0,0.45)",
+  ].join(";");
+
+  if (link) {
+    const anchor = document.createElement("a");
+    anchor.href = link;
+    anchor.textContent = `Search NovelUpdates for “${query}”`;
+    anchor.style.cssText = "color:#e8e6e1";
+    hint.textContent = "Noveltrackr: ";
+    hint.appendChild(anchor);
+  } else {
+    hint.textContent = `Noveltrackr: “${query}” is in NovelUpdates' search box — press Enter`;
+  }
+
+  document.body.appendChild(hint);
+  setTimeout(() => hint.remove?.(), 30000);
+}
+
+// Puts the query where the user can run it, and tells them if this page has no
+// search box (the chip links to NU's search instead). Returns true when the box
+// was filled.
+function offerSearch(query) {
   const box = nuSearchBox();
-  const form = box?.form;
-  if (!box || !form) return false;
+  if (box) {
+    box.value = query;
+    box.focus?.();
+  }
 
-  box.value = query;
-  if (typeof form.requestSubmit === "function") form.requestSubmit();
-  else form.submit();
-
-  return true;
+  showSearchHint(query, box ? null : nuSearchUrl(query));
+  return Boolean(box);
 }
 
 // A results page echoes the query back — in the URL when NU put it there, and in
@@ -399,20 +443,16 @@ function run() {
     return;
   }
 
-  // The app parked a query here: run NU's own search (plan §4.2.1 Path B)
+  // The app parked a query here: fill NU's own search box and let the user run
+  // it — a scripted submit is what gets the IP blocked (plan §4.2.1 Path B)
   const pending = onNovelUpdates() ? pendingSearchQuery() : null;
   if (pending) {
     clearSearchMarker();
 
-    if (submitNuSearch(pending)) {
-      console.log("[Noveltrackr] NU search for:", pending, "— submitted NU's own search form");
+    if (offerSearch(pending)) {
+      console.log("[Noveltrackr] NU search for:", pending, "— search box filled, press Enter to run it");
     } else {
-      // No search box on this page: let the app's tab go to NU's search URL
-      console.log("[Noveltrackr] NU search for:", pending, "— no search box found, navigating instead");
-      chrome.runtime.sendMessage({
-        type: "NU_SEARCH_FALLBACK",
-        payload: { query: pending },
-      }).catch((e) => console.log("[Noveltrackr] NU fallback failed:", e));
+      console.log("[Noveltrackr] NU search for:", pending, "— no search box found, offering the search link");
     }
     return;
   }

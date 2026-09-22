@@ -51,4 +51,5 @@ The desktop app must be running (in tray is fine) for the extension to communica
 ## Notes
 - All data is stored locally on your machine
 - Database location: `%APPDATA%\com.aweso.noveltrackr\noveltrackr.db`
+- NovelUpdates sits behind Cloudflare, so the extension only ever fills its search box and lets you run the search — no request is made that you didn't make
 - This is a personal tool — no accounts, no cloud sync, no telemetry

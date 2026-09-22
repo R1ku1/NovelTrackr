@@ -179,25 +179,6 @@ async function handleNuSearch({ query, candidates, tabId }) {
   }
 }
 
-/// NovelUpdates' own search URL. Reached by a plain navigation when the page we
-/// land on has no search box we recognise (plan §8.1).
-const NU_SEARCH_URL = (query) => `https://www.novelupdates.com/?s=${encodeURIComponent(query)}`;
-
-/// Fallback for the search flow: take the sender's tab to NU's search
-async function handleNuSearchFallback(query, tabId) {
-  if (!query) return { error: "no_query" };
-  if (!tabId) return { error: "no_tab" };
-
-  try {
-    await chrome.tabs.update(tabId, { url: NU_SEARCH_URL(query) });
-  } catch (e) {
-    console.error("[Noveltrackr] could not open the NU search:", e);
-    return { error: "open_failed" };
-  }
-
-  return { ok: true };
-}
-
 /// Remembers which novel the chosen series belongs to, then opens it so the
 /// page's tags come back through the normal metadata path
 async function handleNuConfirm(tabId, candidateUrl) {
@@ -479,13 +460,6 @@ if (message.type === "COVER_DETECTED") {
     handleNuSearch({ ...message.payload, tabId: sender.tab?.id }).catch(console.error);
     sendResponse({ ok: true });
     return false;
-  }
-
-  if (message.type === "NU_SEARCH_FALLBACK") {
-    handleNuSearchFallback(message.payload.query, sender.tab?.id)
-      .then(sendResponse)
-      .catch((e) => sendResponse({ error: e.message }));
-    return true;
   }
 
   if (message.type === "GET_NU_PENDING") {

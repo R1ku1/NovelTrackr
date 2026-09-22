@@ -759,10 +759,12 @@ function makeDom() {
   console.log("\u2713 content.js spots NU results without depending on the results URL");
 }
 
-// ── 18. content.js: the app's parked query runs NU's own search ──────────────
+// ── 18. content.js: fills NU's search box and leaves the search to the user ──
 {
   let submitted = 0;
-  const box = { value: "", form: { requestSubmit: () => { submitted += 1; } } };
+  let appended = 0;
+  let hint = null;
+  const box = { value: "", focus: () => {}, form: { requestSubmit: () => { submitted += 1; } } };
   let clearedTo = null;
   const location = {
     href: "https://www.novelupdates.com/#noveltrackr=Shadow%20Slave",
@@ -777,6 +779,11 @@ function makeDom() {
     title: "Novel Updates",
     querySelector: (sel) => (sel.includes("input[name='s']") ? box : null),
     querySelectorAll: () => [],
+    createElement: () => {
+      hint = { style: {}, textContent: "", href: "", appendChild: () => {}, remove: () => {} };
+      return hint;
+    },
+    body: { appendChild: () => { appended += 1; } },
     addEventListener: () => {},
   };
 
@@ -791,14 +798,18 @@ function makeDom() {
   vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
 
   assert.equal(box.value, "Shadow Slave", "the parked query must land in NU's own search box");
-  assert.equal(submitted, 1, "NU's search form must be submitted");
-  assert.equal(clearedTo, "/", "the marker must be dropped so a reload can't search again");
-  assert.equal(chrome.calls.messages.length, 0, "the search request itself has nothing to report");
-  console.log("\u2713 content.js runs NU's own search for the query the app parked");
+  assert.equal(submitted, 0, "the extension must not submit the form itself — that is what Cloudflare blocks");
+  assert.equal(appended, 1, "the user must be told what to do next");
+  assert.match(hint.textContent, /press Enter/, "the hint must say to press Enter");
+  assert.equal(clearedTo, "/", "the marker must be dropped so a reload can't re-offer the query");
+  assert.equal(chrome.calls.messages.length, 0, "filling a box must not talk to NU");
+  console.log("\u2713 content.js hands the query to NU's own search box and waits for the user");
 }
 
-// ── 19. content.js: no search box on the page → the app's tab navigates ──────
+// ── 19. content.js: no search box → a link, never an automatic navigation ────
 {
+  let appended = 0;
+  let anchor = null;
   let clearedTo = null;
   const location = {
     href: "https://www.novelupdates.com/#noveltrackr=Shadow%20Slave",
@@ -813,6 +824,11 @@ function makeDom() {
     title: "Novel Updates",
     querySelector: () => null, // no search box we recognise
     querySelectorAll: () => [],
+    createElement: () => {
+      anchor = { style: {}, textContent: "", href: "", appendChild: () => {}, remove: () => {} };
+      return anchor;
+    },
+    body: { appendChild: () => { appended += 1; } },
     addEventListener: () => {},
   };
 
@@ -826,31 +842,17 @@ function makeDom() {
   });
   vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
 
-  const fallback = chrome.calls.messages.find((m) => m.type === "NU_SEARCH_FALLBACK");
-  assert.ok(fallback, "a page without a search box must not silently do nothing");
-  assert.equal(fallback.payload.query, "Shadow Slave");
+  assert.equal(appended, 1, "the user must be offered something to click");
+  assert.equal(
+    anchor.href, "https://www.novelupdates.com/?s=Shadow%20Slave",
+    "the offer must be NU's own search URL, for the user to click"
+  );
+  assert.equal(chrome.calls.messages.length, 0, "nothing may navigate or search behind the user's back");
   assert.equal(clearedTo, "/", "the marker must still be dropped");
-  console.log("\u2713 content.js asks for a navigation when NU's page has no search box");
+  console.log("\u2713 content.js offers NU's search as a link when there is no search box");
 }
 
-// ── 20. background.js: the fallback searches NU by URL ───────────────────────
-{
-  const storage = {};
-  const chrome = makeChrome(storage);
-  const { calls, fetchStub } = makeFetch([]);
-  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
-  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
-
-  const result = await ctx.handleNuSearchFallback("Shadow Slave & Co", 7);
-
-  assert.deepEqual({ ...result }, { ok: true });
-  assert.deepEqual(chrome.calls.tabs, [
-    { id: 7, url: "https://www.novelupdates.com/?s=Shadow%20Slave%20%26%20Co" },
-  ], "the tab must land on NU's search for that query");
-  console.log("\u2713 background.js takes the tab to NU's search URL when needed");
-}
-
-// ── 21. content.js: a Cloudflare block is reported, never searched into ──────
+// ── 20. content.js: a Cloudflare block is reported, never searched into ──────
 {
   let clearedTo = null;
   const blockEl = { id: "cf-error-details" };
