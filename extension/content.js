@@ -215,6 +215,15 @@ function pendingSearchQuery() {
   return match ? decodeParam(match[1]).trim() || null : null;
 }
 
+// NovelUpdates sits behind Cloudflare. If it blocks this IP there is nothing the
+// extension can do, and retrying only deepens the block — so leave the page alone
+// and say so instead of searching into a wall.
+const NU_BLOCK_SELECTORS = "#cf-error-details, #cf-wrapper, .cf-error-code";
+
+function blockedByCloudflare() {
+  return Boolean(document.querySelector(NU_BLOCK_SELECTORS));
+}
+
 function nuSearchBox() {
   return document.querySelector(NU_SEARCH_BOX);
 }
@@ -380,6 +389,15 @@ function scheduleCoverDetection(indexTitle, meta = {}) {
 
 function run() {
   console.log("[Noveltrackr] run() called on:", window.location.href);
+
+  // A blocked page can't be captured from, and searching again makes it worse
+  if (onNovelUpdates() && blockedByCloudflare()) {
+    clearSearchMarker();
+    console.log(
+      "[Noveltrackr] NovelUpdates is blocking this IP (Cloudflare) — panels stay empty until the block lifts"
+    );
+    return;
+  }
 
   // The app parked a query here: run NU's own search (plan §4.2.1 Path B)
   const pending = onNovelUpdates() ? pendingSearchQuery() : null;

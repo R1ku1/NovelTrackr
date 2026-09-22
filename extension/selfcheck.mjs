@@ -850,4 +850,41 @@ function makeDom() {
   console.log("\u2713 background.js takes the tab to NU's search URL when needed");
 }
 
+// ── 21. content.js: a Cloudflare block is reported, never searched into ──────
+{
+  let clearedTo = null;
+  const blockEl = { id: "cf-error-details" };
+  const location = {
+    href: "https://www.novelupdates.com/#noveltrackr=Shadow%20Slave",
+    hostname: "www.novelupdates.com",
+    pathname: "/",
+    search: "",
+    hash: "#noveltrackr=Shadow%20Slave",
+  };
+
+  const timers = [];
+  const chrome = makeChrome({});
+  const document = {
+    title: "Attention Required! | Cloudflare",
+    querySelector: (sel) => (sel.includes("cf-error-details") ? blockEl : null),
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location, history: { replaceState: (_state, _title, url) => { clearedTo = url; } } },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  assert.equal(chrome.calls.messages.length, 0, "a blocked page must not start a search");
+  assert.equal(clearedTo, "/", "the parked query must be dropped while blocked");
+  assert.equal(timers.length, 0, "and nothing may be scheduled on it");
+  console.log("\u2713 content.js stands down when Cloudflare blocks NovelUpdates");
+}
+
 console.log("\nAll extension self-checks passed.");
