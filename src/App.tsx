@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import AddNovelPanel from "./AddNovelPanel";
 import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
+import StatsPanel from "./StatsPanel";
 import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
 import { exportToFile } from "./queries";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -64,6 +65,21 @@ type SortKey = "updated" | "title" | "chapter";
 type ViewMode = "list" | "grid" | "compact";
 
 // ── Dynamic Style Helpers ────────────────────────────────────────────────────
+function getNavBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    background: "transparent",
+    border: "none",
+    color: active ? "#e8e6e1" : "#555",
+    padding: "6px 10px",
+    fontSize: 13,
+    fontFamily: "'Georgia', 'Times New Roman', serif",
+    letterSpacing: "0.06em",
+    cursor: "pointer",
+    borderBottom: `1px solid ${active ? "#e8e6e1" : "transparent"}`,
+    transition: "color 0.15s, border-color 0.15s",
+  };
+}
+
 function getViewBtnStyle(active: boolean): React.CSSProperties {
   return {
     background: active ? "#2a2a35" : "transparent",
@@ -741,6 +757,7 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [quickUpdateTarget, setQuickUpdateTarget] = useState<Novel | null>(null);
+  const [page, setPage] = useState<"library" | "stats">("library");
   const [addPanelOpen, setAddPanelOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<EditNovelData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -816,6 +833,14 @@ export default function App() {
     <div style={styles.app}>
       <header style={styles.header}>
         <span style={styles.logo}>Noveltrackr</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button style={getNavBtnStyle(page === "library")} onClick={() => setPage("library")}>
+            Library
+          </button>
+          <button style={getNavBtnStyle(page === "stats")} onClick={() => setPage("stats")}>
+            Stats
+          </button>
+        </div>
         <div style={styles.headerRight}>
           <button style={styles.addBtn} onClick={() => setAddPanelOpen(true)}>
             + Add Novel
@@ -908,7 +933,9 @@ export default function App() {
         </div>
       </header>
 
-      <div style={styles.toolbar}>
+      {page === "stats" && <StatsPanel />}
+
+      {page === "library" && <div style={styles.toolbar}>
         <div style={styles.searchWrap}>
           <span style={styles.searchIcon}>⌕</span>
           <input
@@ -960,15 +987,15 @@ export default function App() {
           <button style={getViewBtnStyle(viewMode === "compact")} onClick={() => setViewMode("compact")}>▤</button>
           
         </div>
-      </div>
+      </div>}
 
-      <div style={styles.countBar}>
+      {page === "library" && <div style={styles.countBar}>
         {filtered.length} {filtered.length === 1 ? "novel" : "novels"}
         {statusFilter !== "all" && ` · ${statusMeta(statusFilter).label}`}
         {search && ` · "${search}"`}
-      </div>
+      </div>}
 
-      <main style={styles.main}>
+      {page === "library" && <main style={styles.main}>
         {loadError ? (
           <div style={{ ...styles.emptyState, color: "#f87171" }}>
             Couldn't load your library.
@@ -1027,7 +1054,7 @@ export default function App() {
             ))}
           </div>
         )}
-      </main>
+      </main>}
 
       {quickUpdateTarget && (
         <QuickUpdateModal

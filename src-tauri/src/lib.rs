@@ -7,11 +7,19 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod server;
+mod stats;
 
+/// The database the app and its local API share, handed to commands that read it
+pub struct DbPath(pub String);
 
 #[tauri::command]
 fn save_export(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_stats(path: tauri::State<'_, DbPath>) -> Result<stats::Stats, String> {
+    stats::build_stats(&path.0)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -52,7 +60,7 @@ pub fn run() {
         .to_string_lossy()
         .to_string();
 
-    server::start_server(db_path);
+    server::start_server(db_path.clone());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -68,7 +76,8 @@ pub fn run() {
             .build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![save_export])
+        .manage(DbPath(db_path))
+        .invoke_handler(tauri::generate_handler![save_export, get_stats])
         .setup(|app| {
             let quit = MenuItemBuilder::new("Quit Noveltrackr").id("quit").build(app)?;
             let show = MenuItemBuilder::new("Open").id("show").build(app)?;

@@ -28,9 +28,9 @@ fn is_authorised(request: &tiny_http::Request) -> bool {
         .any(|h| is_api_header(&h.field.to_string(), h.value.as_str()))
 }
 
-/// Every request opens its own connection. Without a busy timeout SQLite fails
-/// instantly with SQLITE_BUSY when the UI (sqlx, 5s timeout) holds the write lock.
-fn open_db(db_path: &str) -> Result<rusqlite::Connection, String> {
+/// Opens the app's database. Without a busy timeout SQLite fails instantly with
+/// SQLITE_BUSY when another connection (the UI via sqlx) holds the write lock.
+pub(crate) fn open_db(db_path: &str) -> Result<rusqlite::Connection, String> {
     let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|e| e.to_string())?;

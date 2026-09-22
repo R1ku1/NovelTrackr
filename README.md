@@ -17,6 +17,8 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - "Find on NU" — search NovelUpdates for a novel, pick the right series, and its tags come back
 - Search across titles and aliases with instant clear
 - Filter by status, sort by last updated, title, or chapter number
+- Reading log — every status change and chapter update is recorded, locally and permanently
+- Stats view — completion rate, reading pace, streaks, drop points, a year-long activity heatmap, plus tag-based insights
 - Export full library to JSON backup
 - Runs in system tray — close the window without closing the app
 
