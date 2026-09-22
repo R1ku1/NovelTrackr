@@ -158,11 +158,13 @@ export function ChipInput({
   onChange,
   placeholder,
   hint,
+  suggestions,
 }: {
   values: string[];
   onChange: (v: string[]) => void;
   placeholder: string;
   hint: string;
+  suggestions?: string[];
 }) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -178,6 +180,14 @@ export function ChipInput({
   function removeValue(i: number) {
     onChange(values.filter((_, idx) => idx !== i));
   }
+
+  // Known values that match what's being typed (tag vocabulary, plan §4.2.2)
+  const query = draft.trim().toLowerCase();
+  const matches = suggestions && query
+    ? suggestions
+        .filter((s) => s.toLowerCase().includes(query) && !values.includes(s))
+        .slice(0, 6)
+    : [];
 
   return (
     <div>
@@ -260,6 +270,28 @@ export function ChipInput({
           Add
         </button>
       </div>
+      {matches.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
+          {matches.map((s) => (
+            <button
+              key={s}
+              onClick={() => { onChange([...values, s]); setDraft(""); }}
+              style={{
+                background: "#14141a",
+                border: "1px solid #2a2a35",
+                color: "#8a8a96",
+                borderRadius: 6,
+                padding: "2px 8px",
+                fontSize: 11,
+                fontFamily: FONT,
+                cursor: "pointer",
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
       <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
         {hint}
       </div>

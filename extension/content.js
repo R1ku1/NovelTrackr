@@ -114,6 +114,33 @@ const SITE_TAGS = {
 };
 
 const MAX_TAGS = 40;
+const MAX_VOCABULARY = 1000;
+
+// Tags differ in case and punctuation between sites — "Lit-rpg" and "LitRPG"
+// are the same tag (plan §4.2.2)
+function tagKey(tag) {
+  return tag.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Trimmed, de-duplicated, capped text of every element a selector matches
+function textsFrom(selector, max) {
+  return [...document.querySelectorAll(selector)]
+    .map((el) => el.textContent.trim())
+    // A tag is a short label; anything longer is a chapter or a title
+    .filter((t) => t && t.length <= 60)
+    .filter((t, i, all) => all.findIndex((o) => tagKey(o) === tagKey(t)) === i)
+    .slice(0, max);
+}
+
+// First selector that yields anything wins, so a site's navigation can't get
+// mixed in with its tags
+function firstTags(selectors, max) {
+  for (const selector of selectors) {
+    const tags = textsFrom(selector, max);
+    if (tags.length > 0) return tags;
+  }
+  return [];
+}
 
 // NovelUpdates tags come from its own search flow (plan §4.2.1 Path B), and
 // every other site falls back to manual entry — nothing is ever guessed.
@@ -122,20 +149,27 @@ function extractTags() {
   const site = Object.keys(SITE_TAGS).find((k) => host === k || host.endsWith("." + k));
   if (!site) return { source: null, tags: [] };
 
-  const config = SITE_TAGS[site];
+  return { source: SITE_TAGS[site].source, tags: firstTags(SITE_TAGS[site].selectors, MAX_TAGS) };
+}
 
-  for (const selector of config.selectors) {
-    const tags = [...document.querySelectorAll(selector)]
-      .map((el) => el.textContent.trim())
-      // A tag is a short label; anything longer is a chapter or a title
-      .filter((t) => t && t.length <= 60)
-      .filter((t, i, all) => all.findIndex((o) => o.toLowerCase() === t.toLowerCase()) === i)
-      .slice(0, MAX_TAGS);
+// ── NovelUpdates tag vocabulary (plan §4.2.2) ─────────────────────────────────
+// A single visit to NU's Series Tags page fills the app's tag list, which powers
+// tag suggestions and the canonical spelling of tags captured elsewhere.
+const NU_HOST = "novelupdates.com";
+const NU_TAGS_PATH = "/series-tags";
 
-    if (tags.length > 0) return { source: config.source, tags };
-  }
+// Every tag listed there is a filter link; the later selectors catch markup that
+// keeps the links but moves them
+const NU_VOCABULARY_SELECTORS = [
+  "#main a[href*='series-finder']",
+  ".series-tags a",
+  "a[href*='series-finder']",
+];
 
-  return { source: config.source, tags: [] };
+function isNuPage(pathPrefix) {
+  const host = hostName();
+  const onNu = host === NU_HOST || host.endsWith("." + NU_HOST);
+  return onNu && window.location.pathname.startsWith(pathPrefix);
 }
 
 // Add this helper to detect if we're on an index/ToC page
@@ -253,6 +287,20 @@ function scheduleCoverDetection(indexTitle, meta = {}) {
 
 function run() {
   console.log("[Noveltrackr] run() called on:", window.location.href);
+
+  // NU's Series Tags page is the app's tag vocabulary (plan §4.2.2)
+  if (isNuPage(NU_TAGS_PATH)) {
+    const tags = firstTags(NU_VOCABULARY_SELECTORS, MAX_VOCABULARY);
+    console.log("[Noveltrackr] tag vocabulary page — tags found:", tags.length);
+
+    if (tags.length > 0) {
+      chrome.runtime.sendMessage({
+        type: "VOCABULARY_DETECTED",
+        payload: { tags },
+      }).catch((e) => console.log("[Noveltrackr] vocabulary message failed:", e));
+    }
+    return;
+  }
 
   const result = extractGeneric();
 

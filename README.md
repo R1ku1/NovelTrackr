@@ -13,6 +13,7 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - Cover image display via URL
 - Author captured from the site you read on, or entered by hand
 - Tags captured from the site you read on, or added by hand
+- Tag suggestions from NovelUpdates' tag list, and tags normalised to its spelling
 - Search across titles and aliases with instant clear
 - Filter by status, sort by last updated, title, or chapter number
 - Export full library to JSON backup
@@ -26,6 +27,7 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - Detects cover images on novel index pages and offers to save them
 - Reads the author off a novel page and fills it in for novels already in your library
 - Reads tags off Royal Road, ScribbleHub and NovelFire novel pages and files them with their source
+- Captures NovelUpdates' tag list on one visit, so the app can suggest tags and match their spelling
 - Works generically across most reading sites with site-specific support for Royal Road, ScribbleHub, NovelFire and NovelUpdates
 
 ## Installation

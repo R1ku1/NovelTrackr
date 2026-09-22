@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { getTagVocabulary } from "./queries";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   type Status,
   FieldLabel,
@@ -160,6 +162,34 @@ function DeleteConfirm({
   );
 }
 
+// ── Small text button (panel actions that sit next to a field label) ──────────
+function MiniBtn({ label, title, onClick }: { label: string; title: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: "transparent",
+        border: `1px solid ${hovered ? "#3a3a50" : "#252530"}`,
+        color: hovered ? "#bbb" : "#777",
+        borderRadius: 6,
+        padding: "3px 9px",
+        fontSize: 10,
+        letterSpacing: "0.06em",
+        fontFamily: FONT,
+        cursor: "pointer",
+        transition: "all 0.15s",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 // ── Main Panel ────────────────────────────────────────────────────────────────
 export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Props) {
   const [form, setForm] = useState<EditNovelData | null>(null);
@@ -167,6 +197,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
   const [visible, setVisible] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [vocabulary, setVocabulary] = useState<string[]>([]);
 
   // Animate open/close
   useEffect(() => {
@@ -179,6 +210,14 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
     } else {
       setVisible(false);
     }
+  }, [novel]);
+
+  // Tag suggestions come from the NovelUpdates vocabulary the extension captures
+  useEffect(() => {
+    if (!novel) return;
+    getTagVocabulary()
+      .then(setVocabulary)
+      .catch((e: unknown) => console.error("tag vocabulary load failed:", e));
   }, [novel]);
 
   function set<K extends keyof EditNovelData>(key: K, value: EditNovelData[K]) {
@@ -325,12 +364,32 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
 
           {/* Tags */}
           <div>
-            <FieldLabel text="Tags" />
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+            }}>
+              <FieldLabel text="Tags" />
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <MiniBtn
+                  label="Tag list"
+                  title="Visit NovelUpdates' tag list so the app can offer tag suggestions"
+                  onClick={() => {
+                    openUrl("https://www.novelupdates.com/series-tags/")
+                      .catch((e: unknown) => console.error("could not open NovelUpdates:", e));
+                  }}
+                />
+              </div>
+            </div>
             <ChipInput
               values={form.tags}
               onChange={(v) => set("tags", v)}
               placeholder="e.g. LitRPG, Progression Fantasy"
-              hint="Captured from the site you read on, or added here. Editing them makes them yours."
+              suggestions={vocabulary}
+              hint={vocabulary.length > 0
+                ? `Captured from the site you read on, or added here. ${vocabulary.length} tags known — start typing for suggestions.`
+                : "Captured from the site you read on, or added here. Use “Tag list” once to get NovelUpdates suggestions."}
             />
           </div>
 

@@ -285,6 +285,7 @@ function makeDom() {
   const location = {
     href: "https://www.novelupdates.com/series/editors-survival-guide/",
     hostname: "www.novelupdates.com",
+    pathname: "/series/editors-survival-guide/",
   };
 
   const timers = [];
@@ -361,6 +362,7 @@ function makeDom() {
   const location = {
     href: "https://www.royalroad.com/fiction/99/shadow-slave",
     hostname: "www.royalroad.com",
+    pathname: "/fiction/99/shadow-slave",
   };
 
   const timers = [];
@@ -514,6 +516,63 @@ function makeDom() {
   });
   assert.deepEqual({ ...replied }, { ok: true }, "the popup must be told the write succeeded");
   console.log("\u2713 background.js passes the page's author through the cover save");
+}
+
+// ── 13. content.js: NU's tag list becomes the app's tag vocabulary ───────────
+{
+  const tagEls = [
+    { textContent: "LitRPG" },
+    { textContent: "lit-rpg" }, // same tag, other spelling
+    { textContent: "Progression Fantasy" },
+    { textContent: "z".repeat(80) }, // junk
+  ];
+  const location = {
+    href: "https://www.novelupdates.com/series-tags/",
+    hostname: "www.novelupdates.com",
+    pathname: "/series-tags/",
+  };
+
+  const timers = [];
+  const chrome = makeChrome({});
+  const document = {
+    title: "Series Tags - Novel Updates",
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel.includes("series-finder") ? tagEls : []),
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const msg = chrome.calls.messages.find((m) => m.type === "VOCABULARY_DETECTED");
+  assert.ok(msg, "the tag list page must report the tags it lists");
+  assert.deepEqual([...msg.payload.tags], ["LitRPG", "Progression Fantasy"], "the list must be cleaned");
+  assert.equal(timers.length, 0, "the tag list page is not a novel page — no cover check");
+  console.log("\u2713 content.js captures the NovelUpdates tag list");
+}
+
+// ── 14. background.js: the vocabulary is posted to the app ───────────────────
+{
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const { calls, fetchStub } = makeFetch([]);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  await ctx.handleVocabularyDetection({ tags: ["LitRPG", "Progression Fantasy"] });
+
+  const write = calls.find((c) => c.url.endsWith("/tag-vocabulary"));
+  assert.deepEqual(write?.body, { tags: ["LitRPG", "Progression Fantasy"] }, "the app must get the tag list");
+  assert.equal(chrome.calls.badge.length, 0, "the vocabulary capture must stay silent");
+  assertAuthed(calls, "background.js (vocabulary)");
+  console.log("\u2713 background.js posts the tag vocabulary to the app");
 }
 
 console.log("\nAll extension self-checks passed.");

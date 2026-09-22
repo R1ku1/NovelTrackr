@@ -89,6 +89,36 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author, ta
   }
 }
 
+// ── Tag vocabulary from NovelUpdates' Series Tags page ───────────────────────
+// Silent on purpose: there is nothing to prompt for. The app shows how many tags
+// it knows, which is the feedback that the capture worked.
+async function handleVocabularyDetection({ tags }) {
+  if (!tags || tags.length === 0) return;
+
+  const running = await isAppRunning();
+  if (!running) {
+    console.log("[Noveltrackr] app not running, skipping vocabulary");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/tag-vocabulary`, {
+      method: "POST",
+      headers: API_HEADERS,
+      body: JSON.stringify({ tags }),
+    });
+
+    if (!res.ok) {
+      console.error("[Noveltrackr] vocabulary write rejected:", await res.text());
+      return;
+    }
+
+    console.log("[Noveltrackr] tag vocabulary saved:", tags.length);
+  } catch (e) {
+    console.error("[Noveltrackr] handleVocabularyDetection failed:", e);
+  }
+}
+
 // ── Metadata from a page we already track ─────────────────────────────────────
 // Silent on purpose: no badge, no prompt. The page is evidence for a novel the
 // user already has; if it isn't in the library, the cover flow offers to add it.
@@ -326,6 +356,12 @@ if (message.type === "COVER_DETECTED") {
   sendResponse({ ok: true });
   return false;
 }
+
+  if (message.type === "VOCABULARY_DETECTED") {
+    handleVocabularyDetection(message.payload).catch(console.error);
+    sendResponse({ ok: true });
+    return false;
+  }
 
   if (message.type === "METADATA_DETECTED") {
     handleMetadataDetection(message.payload).catch(console.error);

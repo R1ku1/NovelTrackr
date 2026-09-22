@@ -30,6 +30,15 @@ function parseTags(raw: string | null): string[] {
   }
 }
 
+// ── Tag vocabulary (NovelUpdates' canonical tag list) ─────────────────────────
+export async function getTagVocabulary(): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.select<{ name: string }[]>(
+    `SELECT name FROM tag_vocabulary ORDER BY name COLLATE NOCASE`
+  );
+  return rows.map((r) => r.name);
+}
+
 // ── Reading log ───────────────────────────────────────────────────────────────
 // Append-only history of reading activity (plan §3.3). Entries are never
 // updated or deleted — the novel's own row carries its current state.

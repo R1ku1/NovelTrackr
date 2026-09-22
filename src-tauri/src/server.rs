@@ -78,6 +78,11 @@ pub struct MetadataPayload {
     pub source: Option<String>,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct VocabularyPayload {
+    pub tags: Vec<String>,
+}
+
 /// tag_source values the app understands (plan §8.2)
 const TAG_SOURCES: [&str; 5] = ["nu", "royalroad", "scribblehub", "novelfire", "manual"];
 
@@ -85,13 +90,25 @@ const TAG_SOURCES: [&str; 5] = ["nu", "royalroad", "scribblehub", "novelfire", "
 const MAX_TAGS: usize = 40;
 const MAX_TAG_LEN: usize = 60;
 
+/// The whole NovelUpdates vocabulary is a few hundred tags
+const MAX_VOCABULARY: usize = 1000;
+
 /// A trimmed field, or None when the page gave us nothing usable
 fn text_field(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|v| !v.is_empty())
 }
 
-/// Trim, drop junk and duplicates (case-insensitively), then cap the list
-fn clean_tags(tags: &[String]) -> Vec<String> {
+/// Tags differ in case and punctuation between sites — "Lit-rpg" and "LitRPG"
+/// are the same tag (plan §4.2.2)
+fn tag_key(tag: &str) -> String {
+    tag.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+/// Trim, drop junk (empty or absurdly long) and duplicates, then cap the list
+fn clean_tags(tags: &[String], max: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
 
     for tag in tags {
@@ -99,11 +116,11 @@ fn clean_tags(tags: &[String]) -> Vec<String> {
         if tag.is_empty() || tag.chars().count() > MAX_TAG_LEN {
             continue;
         }
-        if out.iter().any(|seen| seen.eq_ignore_ascii_case(tag)) {
+        if out.iter().any(|seen| tag_key(seen) == tag_key(tag)) {
             continue;
         }
         out.push(tag.to_string());
-        if out.len() == MAX_TAGS {
+        if out.len() == max {
             break;
         }
     }
@@ -164,6 +181,45 @@ fn save_cover(
     Ok(())
 }
 
+/// Every tag name the vocabulary knows (used to canonicalise page tags)
+fn tag_vocabulary(conn: &rusqlite::Connection) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT name FROM tag_vocabulary")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// The vocabulary's spelling of a tag, or the tag as offered when it's new
+fn canonical_tag(vocabulary: &[String], tag: &str) -> String {
+    vocabulary
+        .iter()
+        .find(|name| tag_key(name) == tag_key(tag))
+        .cloned()
+        .unwrap_or_else(|| tag.to_string())
+}
+
+/// The tag vocabulary cache, captured once from NovelUpdates' Series Tags page
+/// (plan §4.2.2). Re-capturing refreshes the timestamp of every tag it lists.
+fn save_vocabulary(db_path: &str, tags: &[String]) -> Result<usize, String> {
+    let clean = clean_tags(tags, MAX_VOCABULARY);
+    let conn = open_db(db_path)?;
+
+    for tag in &clean {
+        conn.execute(
+            "INSERT INTO tag_vocabulary (name, fetched_at) VALUES (?1, strftime('%s','now'))
+             ON CONFLICT(name) DO UPDATE SET fetched_at = excluded.fetched_at",
+            rusqlite::params![tag],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    Ok(clean.len())
+}
+
 /// Metadata a page offered for a novel already in the library. It only fills
 /// empty fields: a visit must never throw away what the user typed (plan §4.1).
 fn save_metadata(db_path: &str, payload: &MetadataPayload) -> Result<(), String> {
@@ -182,7 +238,13 @@ fn save_metadata(db_path: &str, payload: &MetadataPayload) -> Result<(), String>
             .filter(|s| TAG_SOURCES.contains(s))
             .ok_or_else(|| format!("unknown tag source: {:?}", payload.source))?;
 
-        let clean = clean_tags(tags);
+        // Sites spell tags their own way; the vocabulary has the canonical one
+        let vocabulary = tag_vocabulary(&conn)?;
+        let clean: Vec<String> = clean_tags(tags, MAX_TAGS)
+            .iter()
+            .map(|tag| canonical_tag(&vocabulary, tag))
+            .collect();
+
         if !clean.is_empty() {
             let json = serde_json::to_string(&clean).map_err(|e| e.to_string())?;
 
@@ -313,6 +375,26 @@ pub fn start_server_on(db_path: String, addr: &str) {
                                         id,
                                         serde_json::to_string(&title).unwrap_or_else(|_| "\"\"".to_string())
                                     ),
+                                    200,
+                                ),
+                                Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                            }
+                        }
+                        Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 400),
+                    }
+                }
+
+                // The tag vocabulary cache, captured from NovelUpdates'
+                // Series Tags page (plan §4.2.2)
+                ("POST", "/tag-vocabulary") => {
+                    let mut body = String::new();
+                    request.as_reader().read_to_string(&mut body).unwrap_or(0);
+
+                    match serde_json::from_str::<VocabularyPayload>(&body) {
+                        Ok(payload) => {
+                            match save_vocabulary(&db_path, &payload.tags) {
+                                Ok(count) => json_response(
+                                    format!(r#"{{"ok":true,"count":{}}}"#, count),
                                     200,
                                 ),
                                 Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
@@ -879,6 +961,99 @@ mod tests {
             .query_row("SELECT author FROM novels", [], |row| row.get(0))
             .unwrap();
         assert_eq!(author, "Guiltythree");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The vocabulary is a cache: capturing the same page twice must not grow it,
+    /// and junk tags must not land in it at all.
+    #[test]
+    fn vocabulary_capture_is_cleaned_and_repeatable() {
+        let path = temp_db("vocabulary");
+        migrate(&path, MIGRATIONS.len());
+
+        let tags = |extra: &[&str]| {
+            let mut all: Vec<String> = vec![
+                "LitRPG".to_string(),
+                "lit-rpg".to_string(),              // same tag, other spelling
+                "Progression Fantasy".to_string(),
+                String::new(),
+                "y".repeat(MAX_TAG_LEN + 1),        // junk
+            ];
+            all.extend(extra.iter().map(|t| t.to_string()));
+            all
+        };
+
+        let saved = save_vocabulary(path.to_str().unwrap(), &tags(&[])).unwrap();
+        assert_eq!(saved, 2, "junk and duplicates are dropped before they are stored");
+
+        // Capturing again (e.g. a second visit to the page) is idempotent
+        save_vocabulary(path.to_str().unwrap(), &tags(&["Comedy"])).unwrap();
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let names: Vec<String> = conn
+            .prepare("SELECT name FROM tag_vocabulary ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(
+            names,
+            vec![
+                "Comedy".to_string(),
+                "LitRPG".to_string(),
+                "Progression Fantasy".to_string(),
+            ]
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A page's tags take the vocabulary's spelling, so the same tag from two
+    /// sites ends up as one row in tag-based stats (plan §4.2.2).
+    #[test]
+    fn page_tags_take_the_vocabulary_spelling() {
+        let path = temp_db("canonical-tags");
+        migrate(&path, MIGRATIONS.len());
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO novels (canonical_title, status) VALUES ('Shadow Slave', 'planned')",
+                [],
+            ).unwrap();
+        }
+
+        save_vocabulary(
+            path.to_str().unwrap(),
+            &[
+                "LitRPG".to_string(),
+                "Sci-Fi".to_string(),
+                "Progression Fantasy".to_string(),
+            ],
+        ).unwrap();
+
+        save_metadata(
+            path.to_str().unwrap(),
+            &MetadataPayload {
+                novel_id: 1,
+                author: None,
+                tags: Some(vec![
+                    "lit-rpg".to_string(),
+                    "sci fi".to_string(),
+                    "Cultivation".to_string(), // not in the vocabulary — kept as-is
+                ]),
+                source: Some("royalroad".to_string()),
+            },
+        ).unwrap();
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let tags: String = conn
+            .query_row("SELECT tags FROM novels WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(tags, r#"["LitRPG","Sci-Fi","Cultivation"]"#);
 
         let _ = std::fs::remove_file(&path);
     }
