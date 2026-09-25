@@ -128,44 +128,39 @@ function getTagFilterStyle(active: boolean): React.CSSProperties {
   };
 }
 
-function getTrStyle(hovered: boolean): React.CSSProperties {
+function getTrStyle(hovered: boolean, favourite = false): React.CSSProperties {
   return {
     borderBottom: "1px solid #1a1a22",
     background: hovered ? "#16161e" : "transparent",
     cursor: "pointer",
     transition: "background 0.1s",
+    // A ring around the whole row, painted inside its own box so the table's collapsed
+    // borders, the row height and the hover background all stay as they were
+    boxShadow: favourite ? FOIL_RING : undefined,
   };
 }
 
 // ── Five stars ───────────────────────────────────────────────────────────────
 // Exactly five, not four-and-a-half: four is a good novel, five is the shelf.
 //
-// The cover sits in a foil frame drawn with two background layers, because a gradient
-// cannot be a border colour: the padding-box layer keeps the box's own backing (so the
-// "No Cover" placeholder stays readable on it) and the border-box layer is the gold.
-// The highlight that sweeps across it is in App.css (.foil / .foil-host), on hover and
-// keyboard focus only — the frame alone carries the meaning, so nothing here depends on
-// movement, and the label says it in words for anyone who can't see the colour.
-const FOIL_GRADIENT =
-  "linear-gradient(135deg, #8a6d1f 0%, #ffd700 28%, #fff3b0 50%, #d4af37 72%, #8a6d1f 100%)";
-
-const COVER_BACKING = "#1a1a22";
+// The ring is two inset shadows and an outer glow — bright gold, then a dark gold bevel
+// inside it — rather than a gradient border: it has to look the same on a table row
+// (where collapsed borders ignore most border tricks) as on a card, and it must leave the
+// box's own background and hover colour alone. Two golds read as a metal edge without
+// needing a gradient.
+//
+// The card also gets the sweeping highlight in App.css (.foil), on hover and keyboard
+// focus, repeating while the pointer stays — the ring alone carries the meaning, so
+// nothing here depends on movement, and the label says it in words for a screen reader
+// and for anyone who cannot tell gold from grey.
+const GOLD_LIGHT = "#ffd700";
+const GOLD_DEEP = "#8a6d1f";
+const FOIL_RING = `inset 0 0 0 3px ${GOLD_LIGHT}, inset 0 0 0 5px ${GOLD_DEEP}, 0 0 14px rgba(212, 175, 55, 0.3)`;
 
 const FAVOURITE_LABEL = "Rated 5 out of 5 stars";
 
 function isFavourite(novel: { rating: number | null }): boolean {
   return novel.rating === 5;
-}
-
-function getCoverFrameStyle(base: React.CSSProperties, favourite: boolean): React.CSSProperties {
-  if (!favourite) return base;
-
-  return {
-    ...base,
-    border: "2px solid transparent",
-    background: `linear-gradient(${COVER_BACKING}, ${COVER_BACKING}) padding-box, ${FOIL_GRADIENT} border-box`,
-    boxShadow: "0 0 10px rgba(212, 175, 55, 0.25)",
-  };
 }
 
 // The DB row is untyped at the boundary — an unrecognised status must not crash the view
@@ -189,7 +184,7 @@ function getStatusBadgeStyle(status: Status): React.CSSProperties {
   };
 }
 
-function getGridCardStyle(hovered: boolean): React.CSSProperties {
+function getGridCardStyle(hovered: boolean, favourite = false): React.CSSProperties {
   return {
     background: hovered ? "#16161e" : "#141418",
     border: "1px solid #222230",
@@ -201,6 +196,8 @@ function getGridCardStyle(hovered: boolean): React.CSSProperties {
     flexDirection: "column",
     gap: 8,
     borderRadius: 12,
+    // The same ring as the list row, sized to the card (inset shadows follow the radius)
+    boxShadow: favourite ? FOIL_RING : undefined,
   };
 }
 
@@ -889,8 +886,7 @@ const ListRow = memo(function ListRow({
 
   return (
     <tr
-      className={favourite ? "foil-host" : undefined}
-      style={getTrStyle(hovered)}
+      style={getTrStyle(hovered, favourite)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => onOpen(novel)}
@@ -907,13 +903,7 @@ const ListRow = memo(function ListRow({
     >
       <td style={{ ...styles.td, ...styles.titleCell }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            className={favourite ? "foil" : undefined}
-            style={getCoverFrameStyle(styles.listCover, favourite)}
-            role={favourite ? "img" : undefined}
-            aria-label={favourite ? FAVOURITE_LABEL : undefined}
-            title={favourite ? "Rated 5 out of 5" : undefined}
-          >
+          <div style={styles.listCover}>
             <CoverImage url={novel.cover_url} alt="" placeholder={false} />
           </div>
           <div>
@@ -923,6 +913,7 @@ const ListRow = memo(function ListRow({
             )}
             {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
             <TagChips tags={novel.tags} />
+            {favourite && <span className="sr-only">{FAVOURITE_LABEL}</span>}
           </div>
         </div>
       </td>
@@ -966,19 +957,13 @@ const GridCard = memo(function GridCard({
 
   return (
     <div
-      className={favourite ? "foil-host" : undefined}
-      style={getGridCardStyle(hovered)}
+      className={favourite ? "foil" : undefined}
+      style={getGridCardStyle(hovered, favourite)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => onOpen(novel)}
     >
-      <div
-        className={favourite ? "foil" : undefined}
-        style={getCoverFrameStyle(styles.gridCover, favourite)}
-        role={favourite ? "img" : undefined}
-        aria-label={favourite ? FAVOURITE_LABEL : undefined}
-        title={favourite ? "Rated 5 out of 5" : undefined}
-      >
+      <div style={styles.gridCover}>
         <CoverImage url={novel.cover_url} alt="" />
       </div>
       {/* The title is the card's keyboard path — clicking the card is a mouse shortcut */}
@@ -992,6 +977,7 @@ const GridCard = memo(function GridCard({
       >
         {novel.canonical_title}
       </button>
+      {favourite && <span className="sr-only">{FAVOURITE_LABEL}</span>}
       {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
       <TagChips tags={novel.tags} />
       <span style={getStatusBadgeStyle(novel.status)}>
