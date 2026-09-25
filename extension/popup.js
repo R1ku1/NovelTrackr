@@ -48,6 +48,75 @@ async function getNuRelease() {
   return chrome.runtime.sendMessage({ type: "GET_NU_RELEASE" });
 }
 
+// ── The page's offers ─────────────────────────────────────────────────────────
+// The popup is a list: one card per thing this page has that the app doesn't, each
+// with the single click that accepts it, and one way out below the lot. Cards are
+// appended in the order they were found and the footer is always last, so accepting
+// one offer never hides another — or the way out.
+function appendCard(body, id, html) {
+  body.innerHTML += `<div class="card" id="${id}">${html}</div>`;
+  return document.getElementById(id);
+}
+
+// The one way out. Dismissing clears this page's offers — the cover and the tag
+// summary alike — and closes the popup.
+function appendDone(body) {
+  appendCard(body, "footer", `<button class="btn-ignore" id="btnDone">Done</button>`);
+
+  document.getElementById("btnDone").onclick = () => {
+    chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
+    window.close();
+  };
+}
+
+// A cover the page has and the novel doesn't: background.js never offers the one
+// already stored, so whenever this card appears the image would change something
+function appendCoverCard(body, cover, { preview = false } = {}) {
+  appendCard(body, "coverCard", `
+    <div class="detection-label">Cover Image Found</div>
+    ${preview
+      ? `<div style="margin:10px 0; text-align:center">
+           <img src="${esc(cover.coverUrl)}" alt="Cover"
+             style="max-width:120px;max-height:180px;border-radius:6px;border:1px solid #2a2a35;object-fit:cover"
+             onerror="this.style.display='none';document.getElementById('coverError').style.display='block'" />
+           <div id="coverError" style="display:none;font-size:11px;color:#555;margin-top:8px">Could not load image preview</div>
+         </div>`
+      : ""}
+    <div class="detected-chapter" style="margin-bottom:0">${cover.replacesCover
+      ? "A different image from the one in your library"
+      : "This novel has no cover yet"}</div>
+    <button class="btn-update" id="btnSaveCover" style="margin-top:10px">Save as Cover</button>
+  `);
+
+  wireSaveCover(body, cover);
+}
+
+// Saving a cover is not the end of the visit, so the card reports itself and the
+// rest of the page's offers stay where they are
+function wireSaveCover(body, cover) {
+  const button = document.getElementById("btnSaveCover");
+  if (!button) return;
+
+  button.onclick = async () => {
+    const result = await chrome.runtime.sendMessage({
+      type: "SAVE_COVER",
+      payload: {
+        novelId: cover.novelId,
+        coverUrl: cover.coverUrl,
+        author: cover.author,
+        tabId: cover.tabId,
+      },
+    });
+
+    const html = result?.ok
+      ? `<div class="success">✓ Cover saved</div>`
+      : `<div class="state-offline">Failed to save cover.</div>`;
+    const card = document.getElementById("coverCard");
+    if (card) card.innerHTML = html;
+    else body.innerHTML = html;
+  };
+}
+
 // NovelUpdates' newest release is offered here, and only written if the user says
 // so: the number belongs to whichever group released it, so it goes in as a lower
 // bound they have explicitly accepted rather than as a silent guess.
@@ -55,11 +124,11 @@ async function appendNuReleaseOffer(body) {
   const release = await getNuRelease();
   if (!release || !release.token) return;
 
-  body.innerHTML += `
-    <div class="detection-label" style="margin-top:14px;padding-top:12px;border-top:1px solid #22222e">NovelUpdates' newest release</div>
-    <div class="detected-chapter">${esc(release.group ? `${release.group} · ` : "")}${esc(release.token)} — another group's numbering, so it is recorded as a lower bound</div>
+  appendCard(body, "releaseCard", `
+    <div class="detection-label">NovelUpdates' newest release</div>
+    <div class="detected-chapter" style="margin-bottom:0">${esc(release.group ? `${release.group} · ` : "")}${esc(release.token)} — another group's numbering, so it is recorded as a lower bound</div>
     <button class="btn-update" id="btnUseNuRelease" style="margin-top:10px">Use this number</button>
-  `;
+  `);
 
   const button = document.getElementById("btnUseNuRelease");
   if (!button) return;
@@ -67,12 +136,16 @@ async function appendNuReleaseOffer(body) {
   button.onclick = async () => {
     button.disabled = true;
     const result = await chrome.runtime.sendMessage({ type: "USE_NU_RELEASE", payload: release });
-    const done = document.getElementById("btnUseNuRelease");
-    if (!done) return;
 
-    done.innerHTML = result?.ok
+    const card = document.getElementById("releaseCard");
+    const html = result?.ok
       ? `<div class="success">✓ ${esc(release.token)} recorded</div>`
       : `<div class="state-offline">Couldn't record it (${esc(String(result?.error || "unknown"))})</div>`;
+    if (card) card.innerHTML = html;
+
+    // The number was the last thing this visit was for, so the popup closes on it the
+    // way the other confirmations do — a beat, so the click is answered first
+    if (result?.ok) setTimeout(window.close, 900);
   };
 }
 async function init() {
@@ -100,8 +173,15 @@ async function init() {
   }
 
   if (!badge) {
-    body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
-    return;
+    // Nothing is waiting on a decision. A page can still have filed tags the user
+    // wants to see — that is why they opened the popup — so answer that much, and
+    // only say "nothing here" when there is genuinely nothing.
+    const saved = await getNuSaved();
+    const release = await getNuRelease();
+    if (!saved && !release) {
+      body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+      return;
+    }
   }
 
   // Badge is set — check what's pending
@@ -122,13 +202,11 @@ async function init() {
   const saved = await getNuSaved();
   const cover = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
   if (saved) {
-    renderNuSaved(body, saved, cover);
-    await appendNuReleaseOffer(body);
+    await renderNuSaved(body, saved, cover);
     return;
   }
   if (cover) {
-    renderCoverPrompt(body, cover);
-    await appendNuReleaseOffer(body);
+    await renderCoverPrompt(body, cover);
     return;
   }
 
@@ -163,14 +241,12 @@ async function init() {
     const c = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
     if (s) {
       clearInterval(poll);
-      renderNuSaved(body, s, c);
-      await appendNuReleaseOffer(body);
+      await renderNuSaved(body, s, c);
       return;
     }
     if (c) {
       clearInterval(poll);
-      renderCoverPrompt(body, c);
-      await appendNuReleaseOffer(body);
+      await renderCoverPrompt(body, c);
       return;
     }
   }, 200);
@@ -411,45 +487,25 @@ function renderNuCandidates(body, pending) {
   };
 }
 
-// The series the user picked: report what was captured, and keep the cover offer
-function renderNuSaved(body, saved, cover) {
-  const found = saved.count === 1 ? "1 tag found" : `${saved.count} tags found`;
-  const showCover = cover && cover.type === "cover";
+// The series the user picked: what the page filed, then whatever else it has to offer.
+// Tags need no confirmation — the app fills empty fields only, so nothing the user
+// typed is at stake — but they still get their own card, so a page that merely filed
+// tags says exactly that instead of looking like a cover prompt that found nothing.
+async function renderNuSaved(body, saved, cover) {
+  const found = saved.count === 1 ? "1 tag filed" : `${saved.count} tags filed`;
 
   body.innerHTML = `
-    <div class="detection-label">NovelUpdates</div>
+    <div class="detection-label">NovelUpdates · Tags</div>
     <div class="detected-title">${esc(saved.novelTitle)}</div>
-    <div class="detected-chapter">${esc(found)} on this series</div>
-    ${showCover ? `<button class="btn-update" id="btnSaveCover" style="margin-top:12px">Save as Cover</button>` : ""}
-    <button class="btn-ignore" id="btnDone" style="margin-top:8px">Done</button>
+    <div class="detected-chapter">${esc(found)} with this novel</div>
   `;
 
-  if (showCover) {
-    document.getElementById("btnSaveCover").onclick = async () => {
-      const result = await chrome.runtime.sendMessage({
-        type: "SAVE_COVER",
-        payload: {
-          novelId: cover.novelId,
-          coverUrl: cover.coverUrl,
-          author: cover.author,
-          tabId: cover.tabId,
-        },
-      });
-
-      body.innerHTML = result?.ok
-        ? `<div class="success">✓ Cover saved</div>`
-        : `<div class="state-offline">Failed to save cover.</div>`;
-    };
-  }
-
-  document.getElementById("btnDone").onclick = () => {
-    // Dismissing clears this page's offers — cover and the tag summary alike
-    chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
-    window.close();
-  };
+  if (cover && cover.type === "cover") appendCoverCard(body, cover);
+  await appendNuReleaseOffer(body);
+  appendDone(body);
 }
 
-function renderCoverPrompt(body, cover) {
+async function renderCoverPrompt(body, cover) {
   if (cover.type === "add") {
     renderAddPrompt(body, cover);
     return;
@@ -458,46 +514,11 @@ function renderCoverPrompt(body, cover) {
   body.innerHTML = `
     <div class="detection-label">Cover Image Found</div>
     <div class="detected-title">${esc(cover.novelTitle)}</div>
-    
-    <div style="margin: 12px 0; text-align: center;">
-      <img 
-        src="${esc(cover.coverUrl)}" 
-        alt="Cover"
-        style="max-width: 120px; max-height: 180px; border-radius: 6px; border: 1px solid #2a2a35; object-fit: cover;"
-        onerror="this.style.display='none'; document.getElementById('coverError').style.display='block';"
-      />
-      <div id="coverError" style="display:none; font-size:11px; color:#555; margin-top:8px;">
-        Could not load image preview
-      </div>
-    </div>
-
-    <button class="btn-update" id="btnSaveCover">Save as Cover</button>
-    <button class="btn-ignore" id="btnDismissCover" style="margin-top: 8px;">Ignore</button>
   `;
 
-  document.getElementById("btnSaveCover").onclick = async () => {
-    const result = await chrome.runtime.sendMessage({
-      type: "SAVE_COVER",
-      payload: {
-        novelId: cover.novelId,
-        coverUrl: cover.coverUrl,
-        author: cover.author,
-        tabId: cover.tabId,
-      }
-    });
-
-    if (result?.ok) {
-      body.innerHTML = `<div class="success">✓ Cover saved</div>`;
-      setTimeout(window.close, 800);
-    } else {
-      body.innerHTML = `<div class="state-offline">Failed to save cover.</div>`;
-    }
-  };
-
-  document.getElementById("btnDismissCover").onclick = () => {
-    chrome.runtime.sendMessage({ type: "DISMISS_COVER" });
-    window.close();
-  };
+  appendCoverCard(body, cover, { preview: true });
+  await appendNuReleaseOffer(body);
+  appendDone(body);
 }
 
 // Page metadata rides along with the add, but only when the page offered it

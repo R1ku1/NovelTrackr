@@ -85,6 +85,14 @@ async function getNuSaved(tabId) {
   return result[`nu_saved_${tabId}`] || null;
 }
 
+/// Same image, not merely a similar one: any difference at all is offered, so the
+/// extension never skips a cover on a guess. A novel with no cover (the app stores
+/// an empty string for one) always gets the offer.
+function sameCover(current, detected) {
+  if (!current || !detected) return false;
+  return String(current).trim() === String(detected).trim();
+}
+
 async function handleCoverDetection({ title, coverUrl, domain, tabId, author, tags, source }) {
   const running = await isAppRunning();
   if (!running) {
@@ -119,6 +127,13 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author, ta
       return;
     }
 
+    // The page's image is the one this novel already has: nothing to offer. Anything
+    // else the page carried — tags, a release — is reported on its own.
+    if (sameCover(matches[0].cover_url, coverUrl)) {
+      console.log("[Noveltrackr] cover is already the one in the library, not offering it");
+      return;
+    }
+
     await setCoverPending(tabId, {
       title,
       coverUrl,
@@ -126,6 +141,9 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author, ta
       ...meta,
       novelId: matches[0].id,
       novelTitle: matches[0].canonical_title,
+      // So the popup can say which of the two reasons this offer exists: an image
+      // that differs from the stored one, or a novel that has none yet
+      replacesCover: Boolean(matches[0].cover_url),
       type: "cover",
       tabId,
     });

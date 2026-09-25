@@ -949,7 +949,7 @@ function makeDom() {
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
   await tick();
 
-  assert.match(el("body").innerHTML, /61 tags found/, "the popup must say what the NU flow captured");
+  assert.match(el("body").innerHTML, /61 tags filed/, "the popup must say what the NU flow filed");
   assert.match(el("body").innerHTML, /NovelUpdates/, "and where it came from");
   assert.equal(typeof el("btnSaveCover").onclick, "function", "the cover offer must survive");
 
@@ -962,8 +962,9 @@ function makeDom() {
     { novelId: 5, coverUrl: cover.coverUrl, author: undefined, tabId: 7 },
     "the cover save must be requested with the cover this page had"
   );
-  assert.match(el("body").innerHTML, /Cover saved/);
-  console.log("\u2713 popup.js reports the captured tags and keeps the cover offer");
+  assert.match(el("coverCard").innerHTML, /Cover saved/, "the cover card reports itself");
+  assert.equal(typeof el("btnDone").onclick, "function", "and the way out is still there");
+  console.log("\u2713 popup.js reports the filed tags and keeps the cover offer");
 }
 
 // ── 23. the whole way: the page's tags reach an add that a cover offered ──────
@@ -1609,11 +1610,15 @@ function makeDom() {
 
   const chrome = makeChrome({}, { badge: "+", coverPending: cover, nuRelease: release });
   const { el, document } = makeDom();
+  // close() is handed to setTimeout unbound, the way the popup does it, so it must not
+  // depend on its receiver
+  let closed = false;
+  const window = { get closed() { return closed; }, close() { closed = true; } };
 
   const ctx = vm.createContext({
     chrome,
     document,
-    window: { close() {} },
+    window,
     fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
     AbortSignal,
     console: silent,
@@ -1637,8 +1642,9 @@ function makeDom() {
 
   const sent = chrome.calls.messages.find((m) => m.type === "USE_NU_RELEASE");
   assert.deepEqual({ ...sent?.payload }, release, "confirming sends exactly what was offered");
-  assert.match(el("btnUseNuRelease").innerHTML, /recorded/, "and the popup says it landed");
-  console.log("\u2713 popup.js offers NovelUpdates' newest release and writes only on confirmation");
+  assert.match(el("releaseCard").innerHTML, /recorded/, "and the popup says it landed");
+  assert.equal(window.closed, true, "and then it gets out of the way");
+  console.log("\u2713 popup.js offers NovelUpdates' newest release, writes on confirmation, and closes");
 }
 
 // ── 34. background.js: the confirmed release goes in as a lower bound ─────────
@@ -1904,6 +1910,116 @@ function makeDom() {
     "and the console must say why the page's image was passed over",
   );
   console.log("\u2713 content.js ignores a site's \"no cover\" placeholder");
+}
+
+
+// ── 38. popup.js: every offer is its own card, and Done is below all of them ──
+{
+  // The complaint: the way out sat between the offers, so the release number was
+  // offered *underneath* it. One footer, always last, and one card per offer.
+  const saved = { novelTitle: "Shadow Slave", count: 61 };
+  const cover = {
+    type: "cover",
+    novelId: 5,
+    novelTitle: "Shadow Slave",
+    coverUrl: "https://cdn.novelupdates.com/images/cover.jpg",
+    replacesCover: true,
+    tabId: 7,
+  };
+  const release = {
+    title: "Shadow Slave",
+    latest_chapter: 273,
+    confidence: "lower_bound",
+    token: "c273",
+    group: "KJ Translations",
+  };
+
+  const chrome = makeChrome({}, { badge: "+", coverPending: cover, nuSaved: saved, nuRelease: release });
+  const { el, document } = makeDom();
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => { fn(); return 0; },
+    Promise,
+  });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  const html = el("body").innerHTML;
+  const at = (needle) => {
+    const i = html.indexOf(needle);
+    assert.ok(i >= 0, `the popup is missing ${needle}`);
+    return i;
+  };
+
+  assert.ok(at("btnSaveCover") < at("btnUseNuRelease"), "the cover offer must come first");
+  assert.ok(at("btnUseNuRelease") < at("btnDone"), "Done must be below every offer, not between them");
+  assert.match(html, /A different image from the one in your library/, "the cover card must say why it is offered");
+  assert.equal((html.match(/class="card"/g) || []).length, 3, "two offers and the footer, each its own card");
+  console.log("\u2713 popup.js stacks its offers and puts Done under all of them");
+}
+
+// ── 39. background.js: a cover the library already has is not offered ────────
+{
+  const coverUrl = "https://cdn.novelupdates.com/images/cover.jpg";
+  const novels = [{
+    id: 5,
+    canonical_title: "Shadow Slave",
+    aliases: [],
+    current_chapter_raw: "Chapter 12",
+    cover_url: coverUrl,
+  }];
+
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const { calls, fetchStub } = makeFetch(novels);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  await ctx.handleCoverDetection({ title: "Shadow Slave", coverUrl, domain: "novelupdates.com", tabId: 7 });
+
+  assert.equal(storage.cover_7, undefined, "the image the novel already has must not be offered");
+  assert.equal(chrome.calls.badge.length, 0, "and it must not raise a badge for nothing");
+
+  // A different image on the same novel is still offered, and says which case it is
+  const other = "https://cdn.novelupdates.com/images/2026/01/shadow-slave-new.jpg";
+  await ctx.handleCoverDetection({ title: "Shadow Slave", coverUrl: other, domain: "novelupdates.com", tabId: 7 });
+
+  assert.equal(storage.cover_7?.coverUrl, other, "an image that differs is still worth offering");
+  assert.equal(storage.cover_7?.replacesCover, true, "and it replaces one that exists");
+  assert.ok(chrome.calls.badge.includes("+"), "which the badge announces");
+  console.log("\u2713 background.js only offers a cover the library doesn't already have");
+}
+
+// ── 40. popup.js: a page that only filed tags still says so ──────────────────
+{
+  // Tags are filed silently and need no confirmation, so they set no badge — but the
+  // popup is where the user asks what happened, so it answers instead of claiming
+  // there was nothing on the page.
+  const saved = { novelTitle: "Shadow Slave", count: 61 };
+  const chrome = makeChrome({}, { badge: "", nuSaved: saved });
+  const { el, document } = makeDom();
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => { fn(); return 0; },
+    Promise,
+  });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  assert.match(el("body").innerHTML, /61 tags filed/, "a tags-only page must name what it filed");
+  assert.equal(typeof el("btnDone").onclick, "function", "with the same one way out");
+  assert.ok(!/No chapter detected/.test(el("body").innerHTML), "and must not claim there was nothing");
+  console.log("\u2713 popup.js still reports a page that only filed tags");
 }
 
 

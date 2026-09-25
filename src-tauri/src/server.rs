@@ -44,6 +44,9 @@ pub struct NovelSummary {
     pub canonical_title: String,
     pub aliases: Vec<String>,
     pub current_chapter_raw: Option<String>,
+    /// The extension compares a page's cover against this one, so a page offering the
+    /// image the library already has offers nothing at all
+    pub cover_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -649,7 +652,7 @@ fn get_novels_for_extension(db_path: &str) -> Result<Vec<NovelSummary>, String> 
 
     // One pass instead of a query per novel; ORDER BY n.id keeps aliases contiguous
     let mut stmt = conn.prepare(
-        "SELECT n.id, n.canonical_title, p.chapter_raw, a.alias
+        "SELECT n.id, n.canonical_title, p.chapter_raw, n.cover_url, a.alias
          FROM novels n
          LEFT JOIN progress p ON p.novel_id = n.id
          LEFT JOIN aliases a ON a.novel_id = n.id
@@ -662,12 +665,13 @@ fn get_novels_for_extension(db_path: &str) -> Result<Vec<NovelSummary>, String> 
             row.get::<_, String>(1)?,
             row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
         ))
     })
     .map_err(|e| e.to_string())?;
 
     let mut result: Vec<NovelSummary> = Vec::new();
-    for (id, title, chapter, alias) in rows.filter_map(|r| r.ok()) {
+    for (id, title, chapter, cover, alias) in rows.filter_map(|r| r.ok()) {
         match result.last_mut() {
             Some(last) if last.id == id => {
                 if let Some(alias) = alias {
@@ -679,6 +683,7 @@ fn get_novels_for_extension(db_path: &str) -> Result<Vec<NovelSummary>, String> 
                 canonical_title: title,
                 aliases: alias.into_iter().collect(),
                 current_chapter_raw: chapter,
+                cover_url: cover.filter(|url| !url.is_empty()),
             }),
         }
     }
@@ -980,6 +985,38 @@ mod tests {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }
         path
+    }
+
+    /// The extension matches a page's cover against the library's own before offering
+    /// to save it, so the summary it matches against has to carry the stored cover —
+    /// and `''`, which is what this app stores for "no cover", must read as none.
+    #[test]
+    fn the_extension_summary_carries_the_stored_cover() {
+        let path = temp_db("extension-cover");
+        migrate(&path, MIGRATIONS.len());
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO novels (canonical_title, status, cover_url) VALUES
+                   ('Has A Cover', 'reading', 'https://cdn.example/cover.jpg'),
+                   ('No Cover', 'planned', '')",
+                [],
+            ).unwrap();
+        }
+
+        let novels = get_novels_for_extension(path.to_str().unwrap()).unwrap();
+
+        assert_eq!(
+            novels[0].cover_url.as_deref(),
+            Some("https://cdn.example/cover.jpg"),
+            "the stored cover must ride along, or every page would re-offer its image"
+        );
+        assert_eq!(
+            novels[1].cover_url, None,
+            "'' is this app's \"no cover\", and it must not compare as one"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     /// Migration 004 backfills the log for novels that already exist: reading and

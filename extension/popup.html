@@ -105,6 +105,19 @@
       cursor: pointer;
     }
 
+    /* Each offer on the page is its own card, and the one footer sits below all of
+       them — never between two of them */
+    .card {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #22222e;
+    }
+    .card .success,
+    .card .state-offline {
+      padding: 6px 0;
+      text-align: left;
+    }
+
     /* Unknown novel — candidate list */
     .candidate-label {
       font-size: 10px;
