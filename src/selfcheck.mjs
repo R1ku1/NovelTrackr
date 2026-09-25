@@ -208,6 +208,33 @@ check("the library doesn't redo its work every time something re-renders", () =>
   );
 });
 
+// ── Five stars ────────────────────────────────────────────────────────────────
+check("five stars are foil-stamped, and never rely on motion or colour alone", () => {
+  assert.match(app, /function isFavourite\(novel: \{ rating: number \| null \}\)/);
+  assert.match(app, /return novel\.rating === 5;/, "the treatment must be exactly five stars");
+  assert.equal(
+    (app.match(/getCoverFrameStyle\(styles\.\w+/g) || []).length,
+    2,
+    "the cover in one of the two views has no frame"
+  );
+  assert.equal((app.match(/"foil-host"/g) || []).length, 2, "pointing at a row or card would not sweep it");
+  assert.match(app, /Rated 5 out of 5 stars/, "the frame says nothing to a screen reader");
+  assert.match(app, /role=\{favourite \? "img" : undefined\}/, "the frame is silent about what it means");
+
+  // The frame is permanent; only the highlight animates, and only while it is being
+  // pointed at or focused. Movement is never what carries the rating.
+  assert.match(css, /\.foil \{/);
+  assert.match(css, /\.foil-host:hover \.foil::after/);
+  assert.match(css, /\.foil-host:focus-within \.foil::after/, "the keyboard gets no sweep");
+  assert.ok(!/\.foil \{[\s\S]{0,160}animation:/.test(css), "the foil animates without being pointed at");
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/, "the sweep ignores reduced motion");
+
+  // Gold means five stars now, so nothing else may be that colour
+  assert.ok(!/facc15/.test(app + forms), "the paused badge is still the colour of the foil");
+  assert.match(app, /paused:.*#fb923c/);
+  assert.match(forms, /"paused"[\s\S]{0,80}#fb923c/, "the picker and the badge disagree about paused");
+});
+
 // ── Styling and motion ────────────────────────────────────────────────────────
 check("no blanket transitions or unset outlines", () => {
   const files = [["App.tsx", app], ["formComponents.tsx", forms], ["StatsPanel.tsx", stats],

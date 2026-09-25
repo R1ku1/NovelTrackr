@@ -6,7 +6,9 @@ export type Status = "reading" | "paused" | "completed" | "dropped" | "planned";
 export const STATUS_OPTIONS: { value: Status; label: string; color: string }[] = [
   { value: "reading",   label: "Reading",   color: "#60a5fa" },
   { value: "planned",   label: "Planned",   color: "#a78bfa" },
-  { value: "paused",    label: "Paused",    color: "#facc15" },
+  // Amber, matching STATUS_META in App.tsx: gold is the five-star foil on a cover, so
+  // the paused badge keeps clear of it
+  { value: "paused",    label: "Paused",    color: "#fb923c" },
   { value: "completed", label: "Completed", color: "#4ade80" },
   { value: "dropped",   label: "Dropped",   color: "#f87171" },
 ];

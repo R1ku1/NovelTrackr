@@ -65,7 +65,9 @@ function TagChips({ tags, max = 3 }: { tags: string[]; max?: number }) {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const STATUS_META: Record<Status, { label: string; color: string }> = {
   reading:   { label: "Reading",   color: "#60a5fa" },
-  paused:    { label: "Paused",    color: "#facc15" },
+  // Amber, not yellow: gold is what a five-star cover is foil-stamped in, and a paused
+  // badge in the same colour would say the wrong thing
+  paused:    { label: "Paused",    color: "#fb923c" },
   completed: { label: "Completed", color: "#4ade80" },
   dropped:   { label: "Dropped",   color: "#f87171" },
   planned:   { label: "Planned",   color: "#a78bfa" },
@@ -132,6 +134,37 @@ function getTrStyle(hovered: boolean): React.CSSProperties {
     background: hovered ? "#16161e" : "transparent",
     cursor: "pointer",
     transition: "background 0.1s",
+  };
+}
+
+// ── Five stars ───────────────────────────────────────────────────────────────
+// Exactly five, not four-and-a-half: four is a good novel, five is the shelf.
+//
+// The cover sits in a foil frame drawn with two background layers, because a gradient
+// cannot be a border colour: the padding-box layer keeps the box's own backing (so the
+// "No Cover" placeholder stays readable on it) and the border-box layer is the gold.
+// The highlight that sweeps across it is in App.css (.foil / .foil-host), on hover and
+// keyboard focus only — the frame alone carries the meaning, so nothing here depends on
+// movement, and the label says it in words for anyone who can't see the colour.
+const FOIL_GRADIENT =
+  "linear-gradient(135deg, #8a6d1f 0%, #ffd700 28%, #fff3b0 50%, #d4af37 72%, #8a6d1f 100%)";
+
+const COVER_BACKING = "#1a1a22";
+
+const FAVOURITE_LABEL = "Rated 5 out of 5 stars";
+
+function isFavourite(novel: { rating: number | null }): boolean {
+  return novel.rating === 5;
+}
+
+function getCoverFrameStyle(base: React.CSSProperties, favourite: boolean): React.CSSProperties {
+  if (!favourite) return base;
+
+  return {
+    ...base,
+    border: "2px solid transparent",
+    background: `linear-gradient(${COVER_BACKING}, ${COVER_BACKING}) padding-box, ${FOIL_GRADIENT} border-box`,
+    boxShadow: "0 0 10px rgba(212, 175, 55, 0.25)",
   };
 }
 
@@ -852,9 +885,11 @@ const ListRow = memo(function ListRow({
   onOpen: (novel: Novel) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const favourite = isFavourite(novel);
 
   return (
     <tr
+      className={favourite ? "foil-host" : undefined}
       style={getTrStyle(hovered)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -872,7 +907,13 @@ const ListRow = memo(function ListRow({
     >
       <td style={{ ...styles.td, ...styles.titleCell }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={styles.listCover}>
+          <div
+            className={favourite ? "foil" : undefined}
+            style={getCoverFrameStyle(styles.listCover, favourite)}
+            role={favourite ? "img" : undefined}
+            aria-label={favourite ? FAVOURITE_LABEL : undefined}
+            title={favourite ? "Rated 5 out of 5" : undefined}
+          >
             <CoverImage url={novel.cover_url} alt="" placeholder={false} />
           </div>
           <div>
@@ -921,15 +962,23 @@ const GridCard = memo(function GridCard({
   onOpen: (novel: Novel) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const favourite = isFavourite(novel);
 
   return (
     <div
+      className={favourite ? "foil-host" : undefined}
       style={getGridCardStyle(hovered)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => onOpen(novel)}
     >
-      <div style={styles.gridCover}>
+      <div
+        className={favourite ? "foil" : undefined}
+        style={getCoverFrameStyle(styles.gridCover, favourite)}
+        role={favourite ? "img" : undefined}
+        aria-label={favourite ? FAVOURITE_LABEL : undefined}
+        title={favourite ? "Rated 5 out of 5" : undefined}
+      >
         <CoverImage url={novel.cover_url} alt="" />
       </div>
       {/* The title is the card's keyboard path — clicking the card is a mouse shortcut */}

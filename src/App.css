@@ -52,3 +52,41 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #3a3a45;
 }
+
+/* ── Five stars ────────────────────────────────────────────────────────────────
+   A five-star novel's cover is foil-stamped. The frame is permanent (see the inline
+   background in App.tsx) and this is only the highlight that sweeps across it while
+   the row or card is being pointed at — hover and keyboard focus, never on a timer,
+   so an idle library is completely still. The reduced-motion rule above collapses
+   the sweep for anyone who asked for less motion, which is safe precisely because
+   the frame, not the movement, is what says "five stars". */
+.foil {
+  position: relative;
+  overflow: hidden;
+}
+
+.foil::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-130%);
+  background: linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0) 35%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 255, 255, 0) 65%
+  );
+}
+
+.foil:hover::after,
+.foil-host:hover .foil::after,
+.foil-host:focus-within .foil::after {
+  animation: foil-sweep 900ms ease-out;
+}
+
+@keyframes foil-sweep {
+  from { transform: translateX(-130%); opacity: 1; }
+  to   { transform: translateX(130%); opacity: 0; }
+}
