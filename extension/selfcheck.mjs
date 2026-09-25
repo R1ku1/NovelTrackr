@@ -353,9 +353,16 @@ function makeDom() {
   const ref = path.join(dir, "..", "novelupdate.txt");
   if (existsSync(ref)) {
     const html = readFileSync(ref, "utf8");
-    assert.ok(html.includes('class="serieseditimg"'), "page markup changed — re-check cover selectors");
-    assert.ok(read("content.js").includes('".serieseditimg img"'), "content.js must use the real NovelUpdates class");
-    console.log("\u2713 content.js cover selectors match the saved NovelUpdates markup");
+    // A saved page with no links and no images is a shell (head only, body still
+    // to be built by the site's scripts), so there is no markup to compare with
+    const rendered = html.includes("<a ") || html.includes("<img");
+    if (!rendered) {
+      console.log("– skipped markup check (novelupdate.txt has no rendered body — save the loaded page)");
+    } else {
+      assert.ok(html.includes('class="serieseditimg"'), "page markup changed — re-check cover selectors");
+      assert.ok(read("content.js").includes('".serieseditimg img"'), "content.js must use the real NovelUpdates class");
+      console.log("\u2713 content.js cover selectors match the saved NovelUpdates markup");
+    }
   } else {
     console.log("\u2013 skipped markup check (novelupdate.txt not present)");
   }
