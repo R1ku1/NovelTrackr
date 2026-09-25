@@ -37,6 +37,14 @@ check("the edit panel shows a novel's own log", () => {
   assert.match(edit, /aria-label="Reading history"/, "the history list is anonymous");
 });
 
+check("the stats read the sources and backlog that are already recorded", () => {
+  assert.match(stats, /<SourceTable rows=\{stats\.sources\}/, "the sites aren't broken down");
+  assert.match(stats, /<PaceRows rows=\{stats\.reading_now\}/, "no reading-now leaderboard");
+  assert.match(stats, /<PaceRows rows=\{stats\.fastest_finishes\} showRate/, "no fastest-finish table");
+  assert.match(stats, /backlog\.oldest_title/, "the oldest plan is never named");
+  assert.match(stats, /Histogram buckets=\{stats\.backlog\.buckets\}/, "the backlog age isn't charted");
+});
+
 check("rating and drop reason are labelled pickers", () => {
   assert.match(forms, /aria-label="Rating"/, "the rating picker has no group label");
   assert.match(forms, /aria-label="Reason for dropping"/, "the reason picker has no group label");

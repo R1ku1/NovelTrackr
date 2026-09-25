@@ -52,6 +52,27 @@ export interface NovelHistory {
   entries: HistoryEntry[];
 }
 
+export interface Backlog {
+  buckets: Bucket[];
+  oldest_title: string | null;
+  oldest_days: number;
+}
+
+// Where a novel is read — its preferred source, so nothing is counted twice
+export interface SourceStat {
+  domain: string;
+  novels: number;
+  chapters: number;
+}
+
+// A leaderboard row: how much was read, over how many days
+export interface NovelPace {
+  title: string;
+  chapters: number;
+  days: number;
+  per_day: number;
+}
+
 export interface Stats {
   status_counts: StatusCount[];
   total_novels: number;
@@ -70,6 +91,10 @@ export interface Stats {
   activity: Day[];
   drop_points: Bucket[];
   drop_reasons: Bucket[];
+  sources: SourceStat[];
+  reading_now: NovelPace[];
+  fastest_finishes: NovelPace[];
+  backlog: Backlog;
   tag_stats: TagStat[];
   tag_years: YearTag[];
 }

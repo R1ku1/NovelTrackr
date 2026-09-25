@@ -8,7 +8,7 @@
 //! entries (see [`CHAPTER_ADVANCE`]) — one update that jumps 1 → 5 is four
 //! chapters of reading.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::server::open_db;
@@ -22,6 +22,18 @@ const TOP_TAGS_PER_YEAR: usize = 5;
 const TOP_YEARS: usize = 3;
 /// Drop reasons offered by the edit panel are a fixed set, so this is slack
 const TOP_REASONS: usize = 12;
+/// Novels listed in the "what am I reading" and "fastest finished" tables
+const TOP_NOVELS: usize = 5;
+
+/// How long planned novels have been waiting. Half-open ranges, like the drop
+/// buckets, so every novel lands in exactly one.
+const BACKLOG_BUCKETS: [(&str, f64, f64); 5] = [
+    ("0–30 days", 0.0, 30.0),
+    ("1–3 months", 30.0, 90.0),
+    ("3–6 months", 90.0, 180.0),
+    ("6–12 months", 180.0, 365.0),
+    ("over a year", 365.0, f64::INFINITY),
+];
 
 /// Drop-point buckets — where in a novel people give up. Half-open ranges, so
 /// every chapter number lands in exactly one bucket.
@@ -94,6 +106,33 @@ pub struct NovelHistory {
     pub entries: Vec<HistoryEntry>,
 }
 
+/// Where a novel is read: the site it was last seen on, so a novel only counts
+/// towards the domain it is actually being read from.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct SourceStat {
+    pub domain: String,
+    pub novels: i64,
+    pub chapters: i64,
+}
+
+/// One row of a leaderboard: how much was read, over how many days, and the rate
+/// that falls out of the two.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct NovelPace {
+    pub title: String,
+    pub chapters: i64,
+    pub days: i64,
+    pub per_day: f64,
+}
+
+/// Planned novels by how long they have been waiting, and the worst offender
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Backlog {
+    pub buckets: Vec<Bucket>,
+    pub oldest_title: Option<String>,
+    pub oldest_days: i64,
+}
+
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Stats {
     pub status_counts: Vec<StatusCount>,
@@ -113,6 +152,10 @@ pub struct Stats {
     pub activity: Vec<Day>,
     pub drop_points: Vec<Bucket>,
     pub drop_reasons: Vec<Bucket>,
+    pub sources: Vec<SourceStat>,
+    pub reading_now: Vec<NovelPace>,
+    pub fastest_finishes: Vec<NovelPace>,
+    pub backlog: Backlog,
     pub tag_stats: Vec<TagStat>,
     pub tag_years: Vec<YearTag>,
 }
@@ -150,6 +193,10 @@ pub fn build_stats(db_path: &str) -> Result<Stats, String> {
         weeks: weekly_pace(&activity),
         drop_points: drop_buckets(&conn)?,
         drop_reasons: drop_reasons(&conn)?,
+        sources: source_stats(&conn)?,
+        reading_now: reading_now(&conn)?,
+        fastest_finishes: fastest_finishes(&conn)?,
+        backlog: backlog(&conn)?,
         tag_stats: tag_stats(&conn)?,
         tag_years: tag_years(&conn)?,
         activity,
@@ -436,6 +483,159 @@ fn drop_reasons(conn: &Connection) -> Result<Vec<Bucket>, String> {
 }
 
 
+/// Which sites the library is actually read on. Preferred sources only — the
+/// extension keeps exactly one per novel, so nothing is counted twice.
+fn source_stats(conn: &Connection) -> Result<Vec<SourceStat>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT s.domain,
+                    COUNT(DISTINCT s.novel_id) AS novels,
+                    COALESCE(CAST(ROUND(SUM(a.gained)) AS INTEGER), 0) AS chapters
+             FROM sources s
+             LEFT JOIN ({CHAPTER_ADVANCE}) a ON a.novel_id = s.novel_id
+             WHERE s.is_preferred = 1
+             GROUP BY s.domain
+             ORDER BY novels DESC, s.domain",
+        ))
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SourceStat { domain: row.get(0)?, novels: row.get(1)?, chapters: row.get(2)? })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// What is being read right now: the last 30 days, biggest first. `days` counts
+/// the days that actually had a progress entry, so a novel read in one sitting is
+/// not slower than one spread over a week.
+fn reading_now(conn: &Connection) -> Result<Vec<NovelPace>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT n.canonical_title AS title,
+                    CAST(ROUND(SUM(a.gained)) AS INTEGER) AS chapters,
+                    COUNT(DISTINCT a.day) AS days
+             FROM ({CHAPTER_ADVANCE}) a
+             JOIN novels n ON n.id = a.novel_id
+             WHERE a.day >= date('now', ?1)
+             GROUP BY a.novel_id
+             ORDER BY chapters DESC, title
+             LIMIT ?2",
+        ))
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(
+            rusqlite::params![format!("-{} days", PACE_DAYS - 1), TOP_NOVELS as i64],
+            |row| {
+                let chapters: i64 = row.get(1)?;
+                let days: i64 = row.get(2)?;
+                Ok(NovelPace {
+                    title: row.get(0)?,
+                    chapters,
+                    days,
+                    per_day: per_day(chapters, days),
+                })
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// Finished novels by chapters a day — the quickest reads, measured from the first
+/// log entry to the last. A novel whose whole log lands on one day counts as one.
+fn fastest_finishes(conn: &Connection) -> Result<Vec<NovelPace>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "WITH span AS (
+               SELECT novel_id, MIN(timestamp) AS first, MAX(timestamp) AS last
+               FROM reading_log
+               GROUP BY novel_id
+             )
+             SELECT n.canonical_title AS title,
+                    CAST(ROUND(SUM(a.gained)) AS INTEGER) AS chapters,
+                    MAX(1, CAST(ROUND((s.last - s.first) / 86400.0) AS INTEGER)) AS days
+             FROM ({CHAPTER_ADVANCE}) a
+             JOIN novels n ON n.id = a.novel_id
+             JOIN span s ON s.novel_id = a.novel_id
+             WHERE n.status = 'completed'
+             GROUP BY a.novel_id
+             HAVING chapters > 0
+             ORDER BY (chapters * 1.0) / days DESC, chapters DESC
+             LIMIT ?1",
+        ))
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([TOP_NOVELS as i64], |row| {
+            let chapters: i64 = row.get(1)?;
+            let days: i64 = row.get(2)?;
+            Ok(NovelPace {
+                title: row.get(0)?,
+                chapters,
+                days,
+                per_day: per_day(chapters, days),
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// Chapters a day, never dividing by zero
+fn per_day(chapters: i64, days: i64) -> f64 {
+    chapters as f64 / days.max(1) as f64
+}
+
+/// Planned novels by how long they have been waiting. Paused ones don't count:
+/// they were started, so they are not a plan being put off.
+fn backlog(conn: &Connection) -> Result<Backlog, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT julianday('now') - julianday(created_at)
+             FROM novels
+             WHERE status = 'planned'",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let ages: Vec<f64> = stmt
+        .query_map([], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let buckets = BACKLOG_BUCKETS
+        .iter()
+        .map(|(label, low, high)| Bucket {
+            label: label.to_string(),
+            count: ages.iter().filter(|days| **days >= *low && **days < *high).count() as i64,
+        })
+        .collect();
+
+    let oldest: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT canonical_title,
+                    CAST(ROUND(julianday('now') - julianday(created_at)) AS INTEGER)
+             FROM novels
+             WHERE status = 'planned'
+             ORDER BY created_at, id
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    Ok(Backlog {
+        buckets,
+        oldest_title: oldest.as_ref().map(|(title, _)| title.clone()),
+        oldest_days: oldest.map(|(_, days)| days).unwrap_or(0),
+    })
+}
+
 /// Per-tag counts for the tags used most. Tags arrive from several sites, so the
 /// vocabulary keeps their spelling aligned (see server.rs).
 fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
@@ -510,20 +710,22 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
         .collect())
 }
 
-/// The tags behind each year's reading — how taste moves over time (plan §4.4.2)
+/// The tags behind each year's reading — how taste moves over time (plan §4.4.2).
+/// Chapters read, like the rest of the page, so the years add up to the pace.
 fn tag_years(conn: &Connection) -> Result<Vec<YearTag>, String> {
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT strftime('%Y', rl.timestamp, 'unixepoch') AS year,
                     j.value AS tag,
-                    COUNT(*) AS count
+                    CAST(ROUND(SUM(a.gained)) AS INTEGER) AS count
              FROM reading_log rl
+             JOIN ({CHAPTER_ADVANCE}) a ON a.id = rl.id
              JOIN novels n ON n.id = rl.novel_id
              CROSS JOIN json_each(n.tags) j
              WHERE n.tags IS NOT NULL AND json_valid(n.tags) AND json_type(n.tags) = 'array'
              GROUP BY year, tag
              ORDER BY year DESC, count DESC",
-        )
+        ))
         .map_err(|e| e.to_string())?;
 
     let rows: Vec<(String, String, i64)> = stmt
@@ -856,7 +1058,106 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// Ratings and drop reasons are the only taste signal the library carries
+    /// Sources, leaderboards, backlog and the tag years all read tables the app
+    /// already had — nothing here is estimated
+    #[test]
+    fn sources_leaderboards_and_backlog_come_from_existing_rows() {
+        let path = fresh_db("extras");
+        let conn = Connection::open(&path).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO novels (id, canonical_title, status, tags, created_at) VALUES
+               (1, 'Halfway',    'completed', '[\"LitRPG\"]', datetime('now','-10 days')),
+               (2, 'Current',    'reading',   '[\"LitRPG\"]', datetime('now')),
+               (3, 'Waiting',    'planned',   NULL,          datetime('now','-400 days')),
+               (4, 'Fresh Plan', 'planned',   NULL,          datetime('now','-10 days'));
+
+             INSERT INTO sources (id, novel_id, domain, url_pattern, is_preferred) VALUES
+               (1, 1, 'royalroad.com',   'royalroad.com',   1),
+               (2, 2, 'scribblehub.com', 'scribblehub.com', 1),
+               (3, 2, 'royalroad.com',   'royalroad.com',   0);
+
+             INSERT INTO reading_log (novel_id, action, chapter, timestamp) VALUES
+               (1, 'started',     1, strftime('%s','now') - 10 * 86400),
+               (1, 'progressed', 50, strftime('%s','now') - 5 * 86400),
+               (2, 'started',     1, strftime('%s','now') - 2 * 86400),
+               (2, 'progressed', 10, strftime('%s','now') - 1 * 86400)",
+        )
+        .unwrap();
+
+        let stats = build_stats(path.to_str().unwrap()).unwrap();
+
+        let sources: Vec<(String, i64, i64)> = stats
+            .sources
+            .iter()
+            .map(|s| (s.domain.clone(), s.novels, s.chapters))
+            .collect();
+        assert_eq!(
+            sources,
+            vec![
+                ("royalroad.com".to_string(), 1, 49),
+                ("scribblehub.com".to_string(), 1, 9),
+            ],
+            "a novel counts towards the site it is read on, so the second source is left out"
+        );
+
+        // Only the last 30 days, biggest first
+        let reading: Vec<(String, i64, i64)> = stats
+            .reading_now
+            .iter()
+            .map(|n| (n.title.clone(), n.chapters, n.days))
+            .collect();
+        assert_eq!(
+            reading,
+            vec![("Halfway".to_string(), 49, 1), ("Current".to_string(), 9, 1)]
+        );
+
+        let fastest = &stats.fastest_finishes;
+        assert_eq!(fastest.len(), 1, "only finished novels are ranked");
+        assert_eq!(fastest[0].title, "Halfway");
+        assert_eq!((fastest[0].chapters, fastest[0].days), (49, 5), "1 → 50 over five days");
+        assert!((fastest[0].per_day - 9.8).abs() < 0.0001);
+
+        let buckets: Vec<(String, i64)> = stats
+            .backlog
+            .buckets
+            .iter()
+            .map(|b| (b.label.clone(), b.count))
+            .collect();
+        assert_eq!(
+            buckets,
+            vec![
+                ("0–30 days".to_string(), 1),
+                ("1–3 months".to_string(), 0),
+                ("3–6 months".to_string(), 0),
+                ("6–12 months".to_string(), 0),
+                ("over a year".to_string(), 1),
+            ],
+            "each plan falls in exactly one bucket"
+        );
+        assert_eq!(stats.backlog.oldest_title.as_deref(), Some("Waiting"));
+        assert!(
+            (399..=401).contains(&stats.backlog.oldest_days),
+            "{} days",
+            stats.backlog.oldest_days
+        );
+
+        // Taste over time counts chapters now, like the rest of the page
+        let litrpg: i64 = stats
+            .tag_years
+            .iter()
+            .map(|year| {
+                year.tags
+                    .iter()
+                    .filter(|t| t.label == "LitRPG")
+                    .map(|t| t.count)
+                    .sum::<i64>()
+            })
+            .sum();
+        assert_eq!(litrpg, 49 + 9, "the years add up to what the tag accounts for");
+
+        let _ = std::fs::remove_file(&path);
+    }
     #[test]
     fn ratings_average_per_tag_and_drop_reasons_are_grouped() {
         let path = fresh_db("ratings");

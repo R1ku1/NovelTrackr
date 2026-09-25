@@ -18,7 +18,7 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - Search across titles, aliases, authors and notes with instant clear
 - Filter by status, tag and author; sort by last updated, title, or chapter number
 - Reading log — every status change and chapter update is recorded locally and permanently, with each novel's own history and 30-day chapter total shown in its edit panel
-- Stats view — completion rate, reading pace, streaks, drop points and reasons, a year-long activity heatmap, plus tag-based insights with per-tag rating averages
+- Stats view — completion rate, reading pace, streaks, drop points and reasons, a year-long activity heatmap, per-tag insights with rating averages, plus where you read, what you are reading now and how old the backlog is
 - Rate novels 1–5 and record why you dropped one; both feed the stats rather than sitting unused
 - Export the full library to JSON, and restore it — one transaction, so a bad file changes nothing
 - Automatic database snapshots — one a day plus one before every restore, next to the database in `backups/`

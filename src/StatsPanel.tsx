@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { getStats, type Bucket, type Day, type Stats, type TagStat, type Week } from "./stats";
+import {
+  getStats,
+  type Bucket,
+  type Day,
+  type NovelPace,
+  type SourceStat,
+  type Stats,
+  type TagStat,
+  type Week,
+} from "./stats";
 import { STATUS_OPTIONS, FONT, BtnDanger, BtnSecondary } from "./formComponents";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -277,7 +286,7 @@ function WeekBars({ weeks }: { weeks: Week[] }) {
   );
 }
 
-function Histogram({ buckets }: { buckets: Bucket[] }) {
+function Histogram({ buckets, colour = "#a8555a" }: { buckets: Bucket[]; colour?: string }) {
   const max = Math.max(1, ...buckets.map((b) => b.count));
 
   return (
@@ -290,7 +299,7 @@ function Histogram({ buckets }: { buckets: Bucket[] }) {
               style={{
                 width: `${(bucket.count / max) * 100}%`,
                 height: "100%",
-                background: bucket.count > 0 ? "#a8555a" : "transparent",
+                background: bucket.count > 0 ? colour : "transparent",
                 borderRadius: 3,
               }}
             />
@@ -335,6 +344,61 @@ function TagTable({ rows }: { rows: TagStat[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Leaderboards and sources ──────────────────────────────────────────────────
+// Both read the log and the sources the extension already wrote — no new data
+function PaceRows({ rows, showRate }: { rows: NovelPace[]; showRate?: boolean }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {rows.map((row) => (
+        <div key={row.title} style={styles.tagRow}>
+          <span
+            style={{
+              flex: 1,
+              fontSize: 12,
+              color: "#d5d2cc",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {row.title}
+          </span>
+          <span style={styles.tagCell} title="chapters read">
+            {row.chapters}
+          </span>
+          <span style={styles.tagCell} title="days with a progress entry">
+            {row.days} d
+          </span>
+          {showRate && (
+            <span style={{ ...styles.tagCell, color: "#60a5fa" }} title="chapters a day">
+              {row.per_day.toFixed(1)}/d
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SourceTable({ rows }: { rows: SourceStat[] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <div style={{ ...styles.tagRow, borderBottom: "1px solid #1e1e28" }}>
+        <span style={{ ...styles.tagHead, flex: 1 }}>Site</span>
+        <span style={styles.tagHead}>Novels</span>
+        <span style={styles.tagHead}>Chapters</span>
+      </div>
+      {rows.map((row) => (
+        <div key={row.domain} style={styles.tagRow}>
+          <span style={{ flex: 1, fontSize: 12, color: "#d5d2cc" }}>{row.domain}</span>
+          <span style={styles.tagCell}>{row.novels}</span>
+          <span style={styles.tagCell}>{row.chapters}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -472,6 +536,35 @@ export default function StatsPanel({
         </Section>
       )}
 
+      {stats.reading_now.length > 0 && (
+        <Section title="Reading now" hint="Chapters read in the last 30 days, biggest first">
+          <PaceRows rows={stats.reading_now} />
+        </Section>
+      )}
+
+      {stats.fastest_finishes.length > 0 && (
+        <Section title="Quickest finishes" hint="Chapters a day, from the first log entry to the last">
+          <PaceRows rows={stats.fastest_finishes} showRate />
+        </Section>
+      )}
+
+      {stats.backlog.buckets.some((b) => b.count > 0) && (
+        <Section
+          title="Backlog age"
+          hint={stats.backlog.oldest_title
+            ? `Oldest plan: ${stats.backlog.oldest_title} · waiting ${plural(stats.backlog.oldest_days, "day")}`
+            : "Planned novels by how long they have been waiting"}
+        >
+          <Histogram buckets={stats.backlog.buckets} colour="#a78bfa" />
+        </Section>
+      )}
+
+      {stats.sources.length > 0 && (
+        <Section title="Where you read" hint="Each novel counts towards the site it was last read on">
+          <SourceTable rows={stats.sources} />
+        </Section>
+      )}
+
       <Section title="Library">
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {stats.status_counts.map((row) => {
@@ -512,7 +605,7 @@ export default function StatsPanel({
           <TagTable rows={stats.tag_stats} />
           {stats.tag_years.length > 0 && (
             <div style={{ marginTop: 16 }}>
-              <div style={styles.subTitle}>Taste over time</div>
+              <div style={styles.subTitle}>Taste over time · chapters read</div>
               {stats.tag_years.map((year) => (
                 <div key={year.year} style={styles.yearRow}>
                   <span style={{ width: 44, color: "#666", fontSize: 12 }}>{year.year}</span>
