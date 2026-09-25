@@ -1333,4 +1333,122 @@ function makeDom() {
 }
 
 
+// ── 29. content.js: Royal Road's real table of contents ───────────────────────
+{
+  const fixture = path.join(dir, "..", "royalroaddom.txt");
+  if (existsSync(fixture)) {
+    const html = readFileSync(fixture, "utf8");
+    const anchors = [...html.matchAll(/<a[^>]*href="([^"]*chapter\/[^"]*)"[^>]*>([\s\S]{0,60}?)<\/a>/g)].map(
+      (m) => ({
+        tagName: "A",
+        textContent: m[2].replace(/\s+/g, " ").trim(),
+        className: "",
+        getAttribute: (name) => (name === "href" ? m[1] : null),
+        hasAttribute: () => false,
+      }),
+    );
+
+    assert.ok(anchors.length > 50, "the fixture should carry the whole chapter list");
+
+    const location = {
+      href: "https://www.royalroad.com/fiction/21220/mother-of-learning",
+      hostname: "www.royalroad.com",
+      pathname: "/fiction/21220/mother-of-learning",
+    };
+    const chrome = makeChrome({});
+    const document = {
+      title: "Mother of Learning | Royal Road",
+      querySelector: () => null,
+      querySelectorAll: (sel) => (sel === "a" ? anchors : []),
+      addEventListener: () => {},
+    };
+
+    const ctx = vm.createContext({
+      chrome,
+      document,
+      window: { location },
+      setTimeout: () => 0,
+      clearTimeout: () => {},
+      console: silent,
+    });
+    vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+    const metadata = chrome.calls.messages.find((m) => m.type === "METADATA_DETECTED");
+    assert.ok(metadata, "the real page must report its chapter list");
+    assert.deepEqual(
+      { ...metadata.payload.latest },
+      { latest_chapter: 100, confidence: "exact", total_chapters: 100 },
+      "Royal Road writes \"1. Good Morning Brother\", so the numbered text and the URL both have to be read — and its unnumbered Afterword link must stay out",
+    );
+    console.log("\u2713 content.js reads Royal Road's own table of contents");
+  } else {
+    console.log("\u2013 skipped Royal Road fixture check (royalroaddom.txt not present)");
+  }
+}
+
+// ── 30. content.js: a stub list the page later replaces ───────────────────────
+{
+  // What Mother of Learning served up first: a handful of chapters, then "Loading
+  // volumes" replaced them with all 100. A single scan reports the stub, and it
+  // passes every shape check — that is exactly how it fooled the first version.
+  const entry = (number) => ({
+    tagName: "A",
+    textContent: `${number}. Chapter ${number}`,
+    className: "",
+    getAttribute: (name) =>
+      name === "href" ? `/fiction/21220/mother-of-learning/chapter/30177${number}/${number}-chapter-${number}` : null,
+    hasAttribute: () => false,
+  });
+  const stub = [1, 2, 3, 4, 5].map(entry);
+  const full = Array.from({ length: 100 }, (_, i) => entry(i + 1));
+
+  let rendered = false;
+  const location = {
+    href: "https://www.royalroad.com/fiction/21220/mother-of-learning",
+    hostname: "www.royalroad.com",
+    pathname: "/fiction/21220/mother-of-learning",
+  };
+  const chrome = makeChrome({});
+  const document = {
+    title: "Mother of Learning | Royal Road",
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel === "a" && rendered ? full : sel === "a" ? stub : []),
+    addEventListener: () => {},
+  };
+
+  const timers = [];
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const sent = () => chrome.calls.messages.filter((m) => m.type === "METADATA_DETECTED");
+  assert.deepEqual(
+    { ...sent()[0]?.payload.latest },
+    { latest_chapter: 5, confidence: "exact", total_chapters: 5 },
+    "the stub reads as a complete list — five chapters running up from one",
+  );
+
+  // The site finishes drawing the real list
+  rendered = true;
+  while (timers.length > 0) {
+    const fn = timers.shift();
+    if (fn) fn();
+  }
+
+  assert.equal(sent().length, 2, "the fuller list must be reported as well");
+  assert.deepEqual(
+    { ...sent()[1].payload.latest },
+    { latest_chapter: 100, confidence: "exact", total_chapters: 100 },
+    "and it must carry the real numbers, because the app only ever raises these",
+  );
+  console.log("\u2713 content.js reports a fuller chapter list over the stub it was served first");
+}
+
+
 console.log("\nAll extension self-checks passed.");

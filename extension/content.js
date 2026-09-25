@@ -526,12 +526,39 @@ function latestFromMenu(current) {
   return best;
 }
 
+// A chapter link is one the site built for a chapter, whatever it calls it. Text
+// that spells out "Chapter 12" is trusted from any link; anything looser is only
+// read from a link whose URL says it is a chapter, so a review that happens to read
+// "5. Great book" can't become a chapter number.
+const CHAPTER_HREF = /\/(?:chapter|ch|episode)[-_/?#]|chapter=|[?&]ch=/i;
+
+function tocEntryNumber(text, href) {
+  const trimmed = String(text || "").trim().slice(0, 120);
+  const spelled = chapterNumber(trimmed);
+  if (spelled !== null) return spelled;
+
+  const url = String(href || "");
+  if (!CHAPTER_HREF.test(url)) return null;
+
+  // "12. The Title", "12: The Title", "12 – The Title" (but not "12.5 The Title",
+  // where the dot is part of the number)
+  const numbered = trimmed.match(/^(\d+(?:\.\d+)?)(?:\.|:|\)|\s[-–—])(?!\d)/);
+  if (numbered) return parseFloat(numbered[1]);
+
+  // Royal Road writes the number into its own URL: /chapter/301778/12-the-title.
+  // The segment before the number is the chapter's id, never its number, so both
+  // halves are required — that is what keeps a link like "/chapter/455877" (an
+  // unnumbered afterword) out.
+  const slug = url.match(/\/chapter\/[^/]+\/(\d+(?:\.\d+)?)[-_]/i);
+  return slug ? parseFloat(slug[1]) : null;
+}
+
 // Every chapter number an index page lists
 function tocChapterNumbers() {
   const numbers = new Set();
 
   for (const link of document.querySelectorAll("a")) {
-    const number = chapterNumber(link.textContent);
+    const number = tocEntryNumber(link.textContent, link.getAttribute?.("href"));
     if (number !== null) numbers.add(number);
     if (numbers.size >= 1000) break;
   }
@@ -582,17 +609,26 @@ function detectLatestChapters(current) {
   return null;
 }
 
-// Some sites draw the chapter list after the page has loaded — Royal Road logs
-// "Loading volumes" and fills its table of contents in afterwards, so the scan
-// that ran at that moment saw an empty page. Look again a bounded number of times
-// and report the answer when it finally appears. Nothing is fetched: this only
-// re-reads the page the user is already on, and it stops after a few seconds
-// whether or not anything turned up.
+// Some sites draw the chapter list after the page has loaded, and Royal Road is the
+// awkward case: its first HTML carries a handful of chapters, then "Loading
+// volumes" fills the rest in, so a single scan reports a stub and believes it. Look
+// again a bounded number of times and report anything better that turns up — a
+// higher latest chapter, or a chapter count where there was none. Nothing is
+// fetched: this only re-reads the page the user is already on, and it stops after a
+// few seconds either way.
 const LATE_RESCAN_MS = 800;
 const LATE_RESCAN_TRIES = 6;
 
-function watchForLateLatest(current, report) {
+function isBetterLatest(next, previous) {
+  if (!next) return false;
+  if (!previous) return true;
+  if (next.latest_chapter > previous.latest_chapter) return true;
+  return (next.total_chapters ?? 0) > (previous.total_chapters ?? 0);
+}
+
+function watchForLateLatest(current, report, initial) {
   const startedHref = window.location.href;
+  let best = initial || null;
   let tries = 0;
 
   const look = () => {
@@ -600,16 +636,16 @@ function watchForLateLatest(current, report) {
     if (window.location.href !== startedHref) return;
 
     const latest = detectLatestChapters(current);
-    if (latest) {
-      console.log("[Noveltrackr] chapter information appeared late:", latest);
+    if (isBetterLatest(latest, best)) {
+      console.log("[Noveltrackr] chapter information appeared or improved:", latest);
+      best = latest;
       report(latest);
-      return;
     }
 
     tries += 1;
     if (tries < LATE_RESCAN_TRIES) {
       setTimeout(look, LATE_RESCAN_MS);
-    } else {
+    } else if (!best) {
       console.log("[Noveltrackr] no chapter information on this page after", tries, "looks");
     }
   };
@@ -696,7 +732,7 @@ function run() {
     report(latest);
 
     // The chapter menu and nav can be drawn after load too
-    if (!latest) watchForLateLatest(current, report);
+    watchForLateLatest(current, report, latest);
     return;
   }
 
@@ -759,9 +795,10 @@ function run() {
 
   report(latest);
 
-  // Royal Road logs "Loading volumes" and draws the list afterwards, so the scan
-  // above is usually too early to see anything
-  if (!latest) watchForLateLatest(null, report);
+  // Royal Road's first HTML carries only a few chapters and draws the rest
+  // afterwards ("Loading volumes"), so the scan above is usually a stub — keep
+  // looking, and report anything better than what was just sent
+  watchForLateLatest(null, report, latest);
 
   scheduleCoverDetection(indexTitle, tags.length > 0 ? { author, tags, source } : { author });
 }
