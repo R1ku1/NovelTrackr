@@ -3,7 +3,7 @@ import AddNovelPanel from "./AddNovelPanel";
 import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
 import StatsPanel from "./StatsPanel";
 import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
-import { exportToFile } from "./queries";
+import { exportToFile, importFromFile } from "./queries";
 import { CoverImage } from "./formComponents";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -904,11 +904,31 @@ export default function App() {
     try {
       const saved = await exportToFile();
       notify(saved
-        ? "Exported to file — novels, progress, aliases, sources, site links, reading log"
+        ? "Exported to file — novels, progress, aliases, sources, site links, reading log, tag names"
         : "Export cancelled — nothing was written");
     } catch (e) {
       console.error("export failed:", e);
       notify("Export failed — see the console for details", true);
+    }
+  }
+
+  // Restoring replaces the whole library. The command snapshots the database it
+  // is about to overwrite first, so the wrong file is recoverable; this side only
+  // reports what came back and reloads the list.
+  async function handleRestore() {
+    try {
+      const report = await importFromFile();
+      if (!report) {
+        notify("Restore cancelled — nothing was touched");
+        return;
+      }
+
+      const updated = await getAllNovels();
+      setNovels(updated as Novel[]);
+      notify(`Restored ${report.novels} novels · ${report.reading_log} log entries`);
+    } catch (e) {
+      console.error("restore failed:", e);
+      notify(`Restore failed — ${e instanceof Error ? e.message : String(e)}`, true);
     }
   }
 
@@ -1013,7 +1033,7 @@ export default function App() {
         }}
       />
 
-      {page === "stats" && <StatsPanel onExport={handleExport} />}
+      {page === "stats" && <StatsPanel onExport={handleExport} onRestore={handleRestore} />}
 
       {page === "library" && <div style={styles.toolbar}>
         <div style={styles.searchWrap}>

@@ -2,7 +2,7 @@ import { getDb } from "./db";
 import type Database from "@tauri-apps/plugin-sql";
 import type { Status } from "./formComponents";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { save, open } from "@tauri-apps/plugin-dialog";
 
 export interface NovelRow {
   id: number;
@@ -325,6 +325,9 @@ function parseChapterSort(raw: string): number | null {
 }
 
 // ── Exporting Library contents ─────────────────────────
+// Everything the app knows, in one file. Every table is read with `SELECT *`, so
+// a migration that adds a column is carried automatically — the restore on the
+// Rust side has to be taught the new column name too (see backup.rs).
 export async function exportLibrary(): Promise<string> {
   const db = await getDb();
 
@@ -334,16 +337,18 @@ export async function exportLibrary(): Promise<string> {
   const sources = await db.select<any[]>(`SELECT * FROM sources`);
   const siteMappings = await db.select<any[]>(`SELECT * FROM site_mappings`);
   const readingLog = await db.select<any[]>(`SELECT * FROM reading_log`);
+  const tagVocabulary = await db.select<any[]>(`SELECT * FROM tag_vocabulary`);
 
   const data = {
     exported_at: new Date().toISOString(),
-    version: 3,
+    version: 4,
     novels,
     progress,
     aliases,
     sources,
     site_mappings: siteMappings,
     reading_log: readingLog,
+    tag_vocabulary: tagVocabulary,
   };
 
   return JSON.stringify(data, null, 2);
@@ -362,4 +367,29 @@ export async function exportToFile(): Promise<boolean> {
 
   await invoke("save_export", { path, content: json });
   return true;
+}
+
+// ── Restoring a backup ────────────────────────────────────────────────────────
+export interface RestoreReport {
+  novels: number;
+  progress: number;
+  aliases: number;
+  sources: number;
+  site_mappings: number;
+  reading_log: number;
+  tag_vocabulary: number;
+}
+
+// Replaces the library with a backup file. The command snapshots what is about
+// to be overwritten before it writes, so the wrong file is recoverable from the
+// app's backups folder. Returns null when the user cancels the file picker.
+export async function importFromFile(): Promise<RestoreReport | null> {
+  const picked = await open({
+    multiple: false,
+    filters: [{ name: "Noveltrackr backup", extensions: ["json"] }],
+  });
+
+  if (typeof picked !== "string") return null;
+
+  return invoke<RestoreReport>("import_library", { path: picked });
 }

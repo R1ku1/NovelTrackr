@@ -19,7 +19,8 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - Filter by status, sort by last updated, title, or chapter number
 - Reading log — every status change and chapter update is recorded, locally and permanently
 - Stats view — completion rate, reading pace, streaks, drop points, a year-long activity heatmap, plus tag-based insights
-- Export full library to JSON backup
+- Export the full library to JSON, and restore it — one transaction, so a bad file changes nothing
+- Automatic database snapshots — one a day plus one before every restore, next to the database in `backups/`
 - Runs in system tray — close the window without closing the app
 
 ### Browser Extension (Chrome)
@@ -51,5 +52,6 @@ The desktop app must be running (in tray is fine) for the extension to communica
 ## Notes
 - All data is stored locally on your machine
 - Database location: `%APPDATA%\com.aweso.noveltrackr\noveltrackr.db`
+- Backups: `%APPDATA%\com.aweso.noveltrackr\backups\` — the last 7 daily snapshots, plus the 5 most recent copies taken before a restore. Any of them can be restored with `Restore Backup` on the stats page, or opened directly with a SQLite viewer.
 - NovelUpdates sits behind Cloudflare, so the extension only ever fills its search box and lets you run the search — no request is made that you didn't make
 - This is a personal tool — no accounts, no cloud sync, no telemetry

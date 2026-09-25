@@ -31,6 +31,16 @@ check("export lives on the stats page", () => {
   assert.match(stats, /BtnSecondary label="Export Data"/, "the stats page has no export action");
 });
 
+check("restoring a backup asks before it replaces the library", () => {
+  assert.match(stats, /BtnSecondary label="Restore Backup"/, "the stats page has no restore action");
+  assert.match(stats, /await onRestore\(\)/, "the confirm step never runs the restore");
+  // One click must not swap a library out from under the user
+  assert.match(stats, /BtnDanger label="Replace library"/, "restore replaces the library without asking");
+  assert.match(stats, /setConfirmRestore\(true\)/, "nothing reaches the confirm step");
+  // What was restored has to be reported, not assumed
+  assert.match(app, /Restored \$\{report\.novels\}/, "the header doesn't report what a restore wrote");
+});
+
 check("add is a labelled floating button", () => {
   assert.match(app, /function AddButton/);
   assert.match(app, /aria-label="Add novel"/);

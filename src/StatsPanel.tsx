@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getStats, type Bucket, type Day, type Stats, type TagStat, type Week } from "./stats";
-import { STATUS_OPTIONS, FONT, BtnSecondary } from "./formComponents";
+import { STATUS_OPTIONS, FONT, BtnDanger, BtnSecondary } from "./formComponents";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function percent(part: number, whole: number): number {
@@ -34,6 +34,10 @@ function heatmapWeeks(activity: Day[]): (Day | null)[][] {
   return weeks;
 }
 
+// Heat intensity is chapters read, so a day whose single update jumped four
+// chapters paints like four chapters, not one entry.
+// ponytail: the five bands were tuned for log entries; if an ordinary reading
+// day now saturates at the top band, re-tune these thresholds against real data.
 function heatColour(count: number): string {
   if (count <= 0) return "#16161e";
   if (count <= 2) return "#1d3a5c";
@@ -221,12 +225,12 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub: st
 
 function Heatmap({ activity }: { activity: Day[] }) {
   const weeks = heatmapWeeks(activity);
-  const activeDays = activity.filter((d) => d.entries > 0).length;
+  const readingDays = activity.filter((d) => d.chapters > 0).length;
 
   return (
     <div
       role="img"
-      aria-label={`Reading activity over the last 12 months: ${plural(activeDays, "active day")}`}
+      aria-label={`Chapters read over the last 12 months: ${plural(readingDays, "day")} with reading`}
       style={{ display: "flex", gap: 3, overflowX: "auto", paddingBottom: 4 }}
     >
       {weeks.map((week, i) => (
@@ -234,12 +238,12 @@ function Heatmap({ activity }: { activity: Day[] }) {
           {week.map((day, j) => (
             <div
               key={j}
-              title={day ? `${day.date} — ${day.entries} ${day.entries === 1 ? "entry" : "entries"}` : ""}
+              title={day ? `${day.date} — ${plural(day.chapters, "chapter")} read · ${day.entries} ${day.entries === 1 ? "entry" : "entries"}` : ""}
               style={{
                 width: 9,
                 height: 9,
                 borderRadius: 2,
-                background: day ? heatColour(day.entries) : "transparent",
+                background: day ? heatColour(day.chapters) : "transparent",
               }}
             />
           ))}
@@ -258,7 +262,7 @@ function WeekBars({ weeks }: { weeks: Week[] }) {
         <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
           <div style={{ fontSize: 10, color: week.chapters > 0 ? "#8a8a96" : "#3a3a45", fontVariantNumeric: "tabular-nums" }}>{week.chapters}</div>
           <div
-            title={`${plural(week.chapters, "chapter")} logged`}
+            title={`${plural(week.chapters, "chapter")} read`}
             style={{
               width: "100%",
               height: Math.max(2, Math.round((week.chapters / max) * 64)),
@@ -327,18 +331,38 @@ function TagTable({ rows }: { rows: TagStat[] }) {
 }
 
 // ── The panel ─────────────────────────────────────────────────────────────────
-export default function StatsPanel({ onExport }: { onExport: () => void }) {
+export default function StatsPanel({
+  onExport,
+  onRestore,
+}: {
+  onExport: () => void;
+  onRestore: () => Promise<void>;
+}) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
+    // `reload` is what a restore bumps — the numbers on screen then belong to a
+    // library that no longer exists
+    setError(null);
     getStats()
       .then(setStats)
       .catch((e: unknown) => {
         console.error("stats failed to load:", e);
         setError(e instanceof Error ? e.message : String(e));
       });
-  }, []);
+  }, [reload]);
+
+  // Replacing the library is the one action here that can lose data, so it asks
+  // first and reports through the header like every other write
+  async function handleRestore() {
+    setConfirmRestore(false);
+    setStats(null);
+    await onRestore();
+    setReload((n) => n + 1);
+  }
 
   if (error) {
     return (
@@ -367,7 +391,23 @@ export default function StatsPanel({ onExport }: { onExport: () => void }) {
             {` · ${plural(stats.active_days, "active day")}`}
           </div>
         </div>
-        <BtnSecondary label="Export Data" onClick={onExport} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {confirmRestore ? (
+            <>
+              <span style={{ fontSize: 11, color: "#a8a06a", maxWidth: 280, lineHeight: 1.4 }}>
+                Replace the whole library with a backup file? A copy of the current
+                database is kept in the app's backups folder first.
+              </span>
+              <BtnSecondary label="Cancel" onClick={() => setConfirmRestore(false)} />
+              <BtnDanger label="Replace library" onClick={handleRestore} />
+            </>
+          ) : (
+            <>
+              <BtnSecondary label="Restore Backup" onClick={() => setConfirmRestore(true)} />
+              <BtnSecondary label="Export Data" onClick={onExport} />
+            </>
+          )}
+        </div>
       </div>
 
       {!hasLog && (
@@ -405,11 +445,11 @@ export default function StatsPanel({ onExport }: { onExport: () => void }) {
         />
       </div>
 
-      <Section title="Activity" hint="Every day with a logged change, last 12 months">
+      <Section title="Activity" hint="Chapters read each day, last 12 months">
         <Heatmap activity={stats.activity} />
       </Section>
 
-      <Section title="Chapters per week" hint="Chapters logged in the last 8 weeks">
+      <Section title="Chapters per week" hint="Chapters read in the last 8 weeks">
         <WeekBars weeks={stats.weeks} />
       </Section>
 

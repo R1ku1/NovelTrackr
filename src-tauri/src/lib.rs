@@ -6,6 +6,7 @@ use tauri::{
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+mod backup;
 mod server;
 mod stats;
 
@@ -15,6 +16,15 @@ pub struct DbPath(pub String);
 #[tauri::command]
 fn save_export(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// Replaces the library with a JSON export. What is about to be replaced is
+/// snapshotted first, so restoring the wrong file is recoverable.
+#[tauri::command]
+fn import_library(path: String, db: tauri::State<'_, DbPath>) -> Result<backup::RestoreReport, String> {
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("couldn't read {path}: {e}"))?;
+    backup::snapshot_before_restore(&db.0)?;
+    backup::restore(&db.0, &json)
 }
 
 #[tauri::command]
@@ -60,6 +70,14 @@ pub fn run() {
         .to_string_lossy()
         .to_string();
 
+    // One snapshot a day, taken before anything else touches the file. A failed
+    // backup must never stop the app from starting.
+    match backup::daily_snapshot(&db_path, backup::KEEP_DAILY) {
+        Ok(Some(path)) => eprintln!("[noveltrackr] backed up to {}", path.display()),
+        Ok(None) => {}
+        Err(e) => eprintln!("[noveltrackr] could not back up the database: {}", e),
+    }
+
     server::start_server(db_path.clone());
 
     tauri::Builder::default()
@@ -77,7 +95,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(DbPath(db_path))
-        .invoke_handler(tauri::generate_handler![save_export, get_stats])
+        .invoke_handler(tauri::generate_handler![save_export, get_stats, import_library])
         .setup(|app| {
             let quit = MenuItemBuilder::new("Quit Noveltrackr").id("quit").build(app)?;
             let show = MenuItemBuilder::new("Open").id("show").build(app)?;
