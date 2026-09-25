@@ -1045,4 +1045,214 @@ function makeDom() {
 }
 
 
+// ── 24. content.js: a chapter menu says how far the site has got ──────────────
+{
+  const location = {
+    href: "https://www.royalroad.com/fiction/99/shadow-slave/chapter-3",
+    hostname: "www.royalroad.com",
+    pathname: "/fiction/99/shadow-slave/chapter-3",
+  };
+  const select = {
+    options: [1, 2, 3, 4, 5].map((n) => ({ textContent: `Chapter ${n}`, value: `chapter-${n}` })),
+  };
+
+  const chrome = makeChrome({});
+  const document = {
+    title: "Chapter 3 - Shadow Slave | Royal Road",
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel === "select" ? [select] : []),
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout,
+    clearTimeout,
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const detected = chrome.calls.messages.find((m) => m.type === "CHAPTER_DETECTED");
+  assert.ok(detected, "a chapter page must still be reported");
+  assert.equal(detected.payload.chapter, "Chapter 3", "the chapter being read is untouched");
+  assert.deepEqual(
+    { ...detected.payload.latest },
+    { latest_chapter: 5, confidence: "exact" },
+    "the highest option, exact only because the menu holds the chapter being read",
+  );
+  assert.equal(
+    detected.payload.latest.total_chapters,
+    undefined,
+    "a menu is not a table of contents, so it carries no total",
+  );
+  console.log("\u2713 content.js reads the site's latest chapter off the chapter menu");
+}
+
+// ── 25. content.js: a page that says nothing reports nothing ──────────────────
+{
+  const location = {
+    href: "https://www.royalroad.com/fiction/99/shadow-slave/chapter-3",
+    hostname: "www.royalroad.com",
+    pathname: "/fiction/99/shadow-slave/chapter-3",
+  };
+
+  const chrome = makeChrome({});
+  const document = {
+    title: "Chapter 3 - Shadow Slave | Royal Road",
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout,
+    clearTimeout,
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const detected = chrome.calls.messages.find((m) => m.type === "CHAPTER_DETECTED");
+  assert.ok(detected, "the chapter itself is still worth reporting");
+  assert.equal(
+    detected.payload.latest,
+    null,
+    "no evidence must arrive as no value — a blank page is not 'up to date'",
+  );
+  console.log("\u2713 content.js reports no latest chapter when the page does not say");
+}
+
+// ── 26. content.js: a table of contents gives the count as well ───────────────
+{
+  const location = {
+    href: "https://www.royalroad.com/fiction/99/shadow-slave",
+    hostname: "www.royalroad.com",
+    pathname: "/fiction/99/shadow-slave",
+  };
+  const toc = Array.from({ length: 40 }, (_, i) => ({
+    tagName: "A",
+    textContent: `Chapter ${i + 1}`,
+    className: "",
+    getAttribute: (name) => (name === "href" ? "/chapter" : null),
+    hasAttribute: () => false,
+  }));
+
+  const chrome = makeChrome({});
+  const document = {
+    title: "Shadow Slave | Royal Road",
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel === "a" ? toc : []),
+    addEventListener: () => {},
+  };
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout,
+    clearTimeout,
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const metadata = chrome.calls.messages.find((m) => m.type === "METADATA_DETECTED");
+  assert.ok(metadata, "an index page lists chapters, so it must report them");
+  assert.deepEqual(
+    { ...metadata.payload.latest },
+    { latest_chapter: 40, confidence: "exact", total_chapters: 40 },
+    "a list running from one is a whole table of contents: newest chapter and count",
+  );
+  console.log("\u2713 content.js reads the latest chapter and the total off a table of contents");
+}
+
+
+// ── 27. background.js: the observation rides the writes the app already takes ─
+{
+  const storage = { "mapping:royalroad.com:shadow slave": 5 };
+  const chrome = makeChrome(storage);
+  const { calls, fetchStub } = makeFetch([
+    { id: 5, canonical_title: "Shadow Slave", aliases: [], current_chapter_raw: "Chapter 3" },
+  ]);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  const chapterPage = (latest) => ({
+    type: "CHAPTER_DETECTED",
+    payload: {
+      title: "Shadow Slave",
+      chapter: "Chapter 3",
+      url: "https://www.royalroad.com/fiction/99/shadow-slave/chapter-3",
+      domain: "royalroad.com",
+      latest,
+    },
+  });
+
+  // A novel the user already reads: browsing a chapter is enough, no click needed
+  chrome.listeners.message(
+    chapterPage({ latest_chapter: 40, confidence: "exact" }),
+    { tab: { id: 7 } },
+    () => {},
+  );
+  for (let i = 0; i < 10 && !calls.some((c) => c.url.endsWith("/metadata")); i++) await tick();
+
+  const metadata = calls.find((c) => c.url.endsWith("/metadata"));
+  assert.deepEqual(
+    metadata?.body,
+    { novel_id: 5, latest_chapter: 40, latest_chapter_confidence: "exact" },
+    "a known novel is told where the site is, silently",
+  );
+
+  // A page with nothing to say must not write anything at all
+  const before = calls.filter((c) => c.url.endsWith("/metadata")).length;
+  chrome.listeners.message(chapterPage(null), { tab: { id: 8 } }, () => {});
+  await tick();
+
+  assert.equal(
+    calls.filter((c) => c.url.endsWith("/metadata")).length,
+    before,
+    "no evidence means no request, so a guess can never overwrite a good number",
+  );
+
+  // And the confirmed update carries it too, on the route the popup uses
+  chrome.listeners.message(
+    {
+      type: "CONFIRM_UPDATE",
+      payload: {
+        novelId: 5,
+        chapter: "Chapter 41",
+        url: "https://www.royalroad.com/fiction/99/shadow-slave/chapter-41",
+        domain: "royalroad.com",
+        detectedTitle: "Shadow Slave",
+        tabId: 9,
+        latest: { latest_chapter: 41, confidence: "caught_up", total_chapters: 41 },
+      },
+    },
+    { tab: { id: 9 } },
+    () => {},
+  );
+  for (let i = 0; i < 10 && !calls.some((c) => c.url.endsWith("/progress")); i++) await tick();
+
+  const progress = calls.find((c) => c.url.endsWith("/progress"));
+  assert.deepEqual(
+    progress?.body,
+    {
+      novel_id: 5,
+      chapter_raw: "Chapter 41",
+      source_url: "https://www.royalroad.com/fiction/99/shadow-slave/chapter-41",
+      domain: "royalroad.com",
+      latest_chapter: 41,
+      latest_chapter_confidence: "caught_up",
+      total_chapters: 41,
+    },
+    "the progress write carries what the page said",
+  );
+  assertAuthed(calls, "background.js (latest chapter)");
+  console.log("\u2713 background.js passes the observation to the routes, and only when there is one");
+}
+
+
 console.log("\nAll extension self-checks passed.");
