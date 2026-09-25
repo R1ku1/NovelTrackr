@@ -312,6 +312,7 @@ function TagTable({ rows }: { rows: TagStat[] }) {
         <span style={styles.tagHead}>Novels</span>
         <span style={styles.tagHead}>Completion</span>
         <span style={styles.tagHead}>Chapters</span>
+        <span style={styles.tagHead}>Rating</span>
       </div>
       {rows.map((row) => {
         const decided = row.completed + row.dropped;
@@ -323,6 +324,14 @@ function TagTable({ rows }: { rows: TagStat[] }) {
               {decided === 0 ? "—" : `${percent(row.completed, decided)}%`}
             </span>
             <span style={styles.tagCell}>{row.chapters}</span>
+            {/* An average without its count says very little, so the count is the
+                tooltip and a tag with nothing rated shows a dash */}
+            <span
+              style={{ ...styles.tagCell, color: row.rated === 0 ? "#3a3a45" : "#e0b64a" }}
+              title={row.rated === 0 ? "Nothing rated yet" : `${row.rated} of ${row.novels} novels rated`}
+            >
+              {row.rated === 0 || row.avg_rating === null ? "—" : row.avg_rating.toFixed(1)}
+            </span>
           </div>
         );
       })}
@@ -456,6 +465,12 @@ export default function StatsPanel({
       <Section title="Where novels get dropped" hint="Chapter number at the moment they were dropped">
         <Histogram buckets={stats.drop_points} />
       </Section>
+
+      {stats.drop_reasons.length > 0 && (
+        <Section title="Why novels get dropped" hint="Reasons recorded when a novel is dropped">
+          <Histogram buckets={stats.drop_reasons} />
+        </Section>
+      )}
 
       <Section title="Library">
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>

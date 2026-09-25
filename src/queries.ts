@@ -12,6 +12,8 @@ export interface NovelRow {
   cover_url: string;
   author: string | null;
   tags: string[];
+  rating: number | null;
+  drop_reason: string | null;
   current_chapter_raw: string | null;
   chapter_sort: number | null;
   updated_at: string;
@@ -100,6 +102,7 @@ export async function getAllNovels(): Promise<NovelRow[]> {
   const novels = await db.select<any[]>(`
     SELECT
       n.id, n.canonical_title, n.status, n.notes, n.cover_url, n.author, n.tags,
+      n.rating, n.drop_reason,
       p.chapter_raw as current_chapter_raw,
       p.chapter_sort,
       COALESCE(p.updated_at, n.updated_at) as updated_at,
@@ -188,6 +191,8 @@ export async function updateNovel(data: {
   cover_url: string;
   author: string;
   tags: string[];
+  rating: number | null;
+  drop_reason: string;
   current_chapter_raw: string;
   last_seen_url: string;
   aliases: string[];
@@ -206,8 +211,8 @@ export async function updateNovel(data: {
   await db.execute(
     `UPDATE novels
      SET canonical_title=$1, status=$2, notes=$3, cover_url=$4, author=$5,
-         tags=$6, tag_source=$7, updated_at=datetime('now')
-     WHERE id=$8`,
+         tags=$6, tag_source=$7, rating=$8, drop_reason=$9, updated_at=datetime('now')
+     WHERE id=$10`,
     [
       data.canonical_title,
       data.status,
@@ -217,6 +222,8 @@ export async function updateNovel(data: {
       data.author.trim() || null,
       tags,
       tagSource,
+      data.rating,
+      data.drop_reason.trim() || null,
       data.id,
     ]
   );
@@ -341,7 +348,7 @@ export async function exportLibrary(): Promise<string> {
 
   const data = {
     exported_at: new Date().toISOString(),
-    version: 4,
+    version: 5,
     novels,
     progress,
     aliases,

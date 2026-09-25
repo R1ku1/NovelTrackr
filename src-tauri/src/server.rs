@@ -745,11 +745,12 @@ mod tests {
     use super::*;
 
     /// The migration files in the order sqlx applies them
-    const MIGRATIONS: [&str; 4] = [
+    const MIGRATIONS: [&str; 5] = [
         include_str!("../migrations/001_init.sql"),
         include_str!("../migrations/002_sources_unique.sql"),
         include_str!("../migrations/003_aliases_index.sql"),
         include_str!("../migrations/004_metadata_reading_log.sql"),
+        include_str!("../migrations/005_rating_and_drop_reason.sql"),
     ];
 
     /// Apply migrations `[..upto)` to a fresh file — a real install applies them

@@ -20,6 +20,8 @@ const PACE_WEEKS: usize = 8;
 const TOP_TAGS: usize = 12;
 const TOP_TAGS_PER_YEAR: usize = 5;
 const TOP_YEARS: usize = 3;
+/// Drop reasons offered by the edit panel are a fixed set, so this is slack
+const TOP_REASONS: usize = 12;
 
 /// Drop-point buckets — where in a novel people give up. Half-open ranges, so
 /// every chapter number lands in exactly one bucket.
@@ -64,6 +66,10 @@ pub struct TagStat {
     pub completed: i64,
     pub dropped: i64,
     pub chapters: i64,
+    /// How many of those novels carry a rating, and what they average. The count
+    /// matters: an average of one novel is not a finding.
+    pub rated: i64,
+    pub avg_rating: Option<f64>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -106,6 +112,7 @@ pub struct Stats {
     pub weeks: Vec<Week>,
     pub activity: Vec<Day>,
     pub drop_points: Vec<Bucket>,
+    pub drop_reasons: Vec<Bucket>,
     pub tag_stats: Vec<TagStat>,
     pub tag_years: Vec<YearTag>,
 }
@@ -142,6 +149,7 @@ pub fn build_stats(db_path: &str) -> Result<Stats, String> {
         longest_streak,
         weeks: weekly_pace(&activity),
         drop_points: drop_buckets(&conn)?,
+        drop_reasons: drop_reasons(&conn)?,
         tag_stats: tag_stats(&conn)?,
         tag_years: tag_years(&conn)?,
         activity,
@@ -403,6 +411,30 @@ fn drop_buckets(conn: &Connection) -> Result<Vec<Bucket>, String> {
         .collect())
 }
 
+/// Why novels get dropped, biggest reason first. It reads the novel's own row,
+/// not the log: that is where the edit panel records the reason, and a novel that
+/// was dropped and then resumed is no longer a drop at all.
+fn drop_reasons(conn: &Connection) -> Result<Vec<Bucket>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT drop_reason, COUNT(*) AS count
+             FROM novels
+             WHERE status = 'dropped' AND drop_reason IS NOT NULL AND drop_reason <> ''
+             GROUP BY drop_reason
+             ORDER BY count DESC, drop_reason
+             LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([TOP_REASONS as i64], |row| {
+            Ok(Bucket { label: row.get(0)?, count: row.get(1)? })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
 
 /// Per-tag counts for the tags used most. Tags arrive from several sites, so the
 /// vocabulary keeps their spelling aligned (see server.rs).
@@ -410,7 +442,7 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
     let mut stmt = conn
         .prepare(
             "WITH tag_novels AS (
-               SELECT n.id AS novel_id, j.value AS tag
+               SELECT n.id AS novel_id, j.value AS tag, n.rating AS rating
                FROM novels n
                CROSS JOIN json_each(n.tags) j
                WHERE n.tags IS NOT NULL AND json_valid(n.tags) AND json_type(n.tags) = 'array'
@@ -424,7 +456,9 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
              SELECT tn.tag,
                     COUNT(DISTINCT tn.novel_id) AS novels,
                     COUNT(DISTINCT CASE WHEN la.action = 'completed' THEN tn.novel_id END) AS completed,
-                    COUNT(DISTINCT CASE WHEN la.action = 'dropped' THEN tn.novel_id END) AS dropped
+                    COUNT(DISTINCT CASE WHEN la.action = 'dropped' THEN tn.novel_id END) AS dropped,
+                    COUNT(DISTINCT CASE WHEN tn.rating IS NOT NULL THEN tn.novel_id END) AS rated,
+                    AVG(tn.rating) AS avg_rating
              FROM tag_novels tn
              LEFT JOIN last_action la ON la.novel_id = tn.novel_id AND la.rn = 1
              GROUP BY tn.tag
@@ -433,9 +467,9 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
         )
         .map_err(|e| e.to_string())?;
 
-    let rows: Vec<(String, i64, i64, i64)> = stmt
+    let rows: Vec<(String, i64, i64, i64, i64, Option<f64>)> = stmt
         .query_map([TOP_TAGS as i64], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
         })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
@@ -460,7 +494,7 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
 
     Ok(rows
         .into_iter()
-        .map(|(tag, novels, completed, dropped)| TagStat {
+        .map(|(tag, novels, completed, dropped, rated, avg_rating)| TagStat {
             chapters: chapters
                 .iter()
                 .find(|(name, _)| name == &tag)
@@ -470,6 +504,8 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
             novels,
             completed,
             dropped,
+            rated,
+            avg_rating,
         })
         .collect())
 }
@@ -522,11 +558,12 @@ mod tests {
     use super::*;
 
     /// The migrations, in the order sqlx applies them
-    const MIGRATIONS: [&str; 4] = [
+    const MIGRATIONS: [&str; 5] = [
         include_str!("../migrations/001_init.sql"),
         include_str!("../migrations/002_sources_unique.sql"),
         include_str!("../migrations/003_aliases_index.sql"),
         include_str!("../migrations/004_metadata_reading_log.sql"),
+        include_str!("../migrations/005_rating_and_drop_reason.sql"),
     ];
 
     /// A throwaway database with the real schema, as an install would have it
@@ -789,6 +826,12 @@ mod tests {
         assert!(stats.tag_years[0].tags.iter().any(|b| b.label == "LitRPG"));
         assert!(stats.tag_years[0].tags.iter().all(|b| b.count > 0));
 
+        // Nothing in the seeded library has been rated
+        assert!(
+            stats.tag_stats.iter().all(|t| t.rated == 0 && t.avg_rating.is_none()),
+            "an unrated novel must not invent an average"
+        );
+
         let _ = std::fs::remove_file(&path);
     }
 
@@ -808,6 +851,54 @@ mod tests {
         assert!(stats.activity.iter().all(|d| d.entries == 0));
         assert!(stats.tag_stats.is_empty());
         assert!(stats.tag_years.is_empty());
+        assert!(stats.drop_reasons.is_empty());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Ratings and drop reasons are the only taste signal the library carries
+    #[test]
+    fn ratings_average_per_tag_and_drop_reasons_are_grouped() {
+        let path = fresh_db("ratings");
+        let conn = Connection::open(&path).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO novels (canonical_title, status, tags, rating, drop_reason) VALUES
+               ('Loved',   'completed', '[\"LitRPG\"]', 5,    NULL),
+               ('Liked',   'reading',   '[\"LitRPG\"]', 3,    NULL),
+               ('Unrated', 'reading',   '[\"LitRPG\"]', NULL, NULL),
+               ('Bored',   'dropped',   '[\"Harem\"]',  2,    'Lost interest'),
+               ('Boring',  'dropped',   '[\"Harem\"]',  NULL, 'Lost interest'),
+               ('Slow',    'dropped',   NULL,          1,    'Too slow'),
+               ('Resumed', 'reading',   NULL,          2,    'Lost interest')",
+        )
+        .unwrap();
+
+        let stats = build_stats(path.to_str().unwrap()).unwrap();
+
+        let litrpg = stats.tag_stats.iter().find(|t| t.tag == "LitRPG").unwrap();
+        assert_eq!(litrpg.rated, 2, "the unrated novel is not averaged in");
+        assert_eq!(
+            litrpg.avg_rating.map(|r| (r * 100.0).round()),
+            Some(400.0),
+            "5 and 3 average to 4"
+        );
+
+        let harem = stats.tag_stats.iter().find(|t| t.tag == "Harem").unwrap();
+        assert_eq!((harem.rated, harem.avg_rating), (1, Some(2.0)));
+
+        // A novel that was dropped and then resumed is not a drop any more, so its
+        // reason doesn't count towards the chart
+        let reasons: Vec<(String, i64)> = stats
+            .drop_reasons
+            .iter()
+            .map(|b| (b.label.clone(), b.count))
+            .collect();
+        assert_eq!(
+            reasons,
+            vec![("Lost interest".to_string(), 2), ("Too slow".to_string(), 1)],
+            "biggest reason first"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

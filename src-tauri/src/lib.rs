@@ -64,6 +64,12 @@ pub fn run() {
             sql: include_str!("../migrations/004_metadata_reading_log.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "rating and drop reason",
+            sql: include_str!("../migrations/005_rating_and_drop_reason.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     // Never panic at startup — fall back to the temp dir if the platform won't tell us

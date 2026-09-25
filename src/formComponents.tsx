@@ -191,6 +191,106 @@ export function StatusPicker({
   );
 }
 
+// ── Rating Picker ─────────────────────────────────────────────────────────────
+export const RATING_MAX = 5;
+
+export function RatingPicker({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label="Rating" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      {Array.from({ length: RATING_MAX }, (_, i) => i + 1).map((star) => {
+        const lit = value !== null && star <= value;
+        return (
+          <button
+            key={star}
+            role="radio"
+            aria-checked={value === star}
+            aria-label={`${star} of ${RATING_MAX}`}
+            title={value === star ? "Clear this rating" : `Rate ${star} of ${RATING_MAX}`}
+            onClick={() => onChange(value === star ? null : star)}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "0 2px",
+              cursor: "pointer",
+              fontSize: 20,
+              lineHeight: 1,
+              fontFamily: FONT,
+              color: lit ? "#e0b64a" : "#2e2e3a",
+              transition: "color 0.15s",
+            }}
+          >
+            ★
+          </button>
+        );
+      })}
+      <span style={{ fontSize: 11, color: "#555", marginLeft: 6 }}>
+        {value === null ? "Not rated" : `${value} / ${RATING_MAX}`}
+      </span>
+    </div>
+  );
+}
+
+// ── Drop Reason Picker ────────────────────────────────────────────────────────
+// A fixed set on purpose: the stats group these, so free text would only be a
+// pile of one-offs. Anything longer belongs in Notes.
+export const DROP_REASONS = [
+  "Lost interest",
+  "Not my genre",
+  "Bad prose",
+  "Too slow",
+  "On hiatus",
+  "Dropped by the author",
+];
+
+export function ReasonPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Reason for dropping"
+      style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
+    >
+      {DROP_REASONS.map((reason) => {
+        const active = value === reason;
+        return (
+          <button
+            key={reason}
+            role="radio"
+            aria-checked={active}
+            title={active ? "Clear the reason" : `Record ${reason.toLowerCase()}`}
+            onClick={() => onChange(active ? "" : reason)}
+            style={{
+              background: active ? "#f8717115" : "transparent",
+              border: `1px solid ${active ? "#f8717160" : "#22222e"}`,
+              color: active ? "#f87171" : "#555",
+              borderRadius: 20,
+              padding: "5px 12px",
+              fontSize: 11,
+              letterSpacing: "0.04em",
+              cursor: "pointer",
+              fontFamily: FONT,
+              transition: "background 0.15s, border-color 0.15s, color 0.15s",
+            }}
+          >
+            {reason}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Chip Input (aliases, tags) ────────────────────────────────────────────────
 export function ChipInput({
   values,

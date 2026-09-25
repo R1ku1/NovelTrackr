@@ -8,6 +8,8 @@ import {
   TextInput,
   TextArea,
   StatusPicker,
+  RatingPicker,
+  ReasonPicker,
   ChipInput,
   CoverImage,
   PanelShell,
@@ -30,6 +32,8 @@ export interface EditNovelData {
   cover_url: string;
   aliases: string[];
   tags: string[];
+  rating: number | null;
+  drop_reason: string;
   updated_at: string;
   last_seen_url: string;
 }
@@ -235,6 +239,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
         current_chapter_raw: form.current_chapter_raw.trim(),
         cover_url: form.cover_url.trim(),
         notes: form.notes.trim(),
+        drop_reason: form.drop_reason.trim(),
         last_seen_url: form.last_seen_url.trim(),
         updated_at: new Date().toISOString(),
       });
@@ -335,6 +340,24 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
             <FieldLabel text="Status" />
             <StatusPicker value={form.status} onChange={(v) => set("status", v)} />
           </div>
+
+          {/* Rating — what the tag table averages on the stats page */}
+          <div>
+            <FieldLabel text="Rating" />
+            <RatingPicker value={form.rating} onChange={(v) => set("rating", v)} />
+          </div>
+
+          {/* Only a dropped novel has a reason to give — and it is what the
+              drop-reasons chart groups on, so the set is fixed */}
+          {form.status === "dropped" && (
+            <div>
+              <FieldLabel text="Reason for dropping" />
+              <ReasonPicker value={form.drop_reason} onChange={(v) => set("drop_reason", v)} />
+              <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+                Optional. Groups the stats page by why, not just where you stopped.
+              </div>
+            </div>
+          )}
 
           {/* Chapter */}
           <div>

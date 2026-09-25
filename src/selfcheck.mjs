@@ -37,6 +37,17 @@ check("the edit panel shows a novel's own log", () => {
   assert.match(edit, /aria-label="Reading history"/, "the history list is anonymous");
 });
 
+check("rating and drop reason are labelled pickers", () => {
+  assert.match(forms, /aria-label="Rating"/, "the rating picker has no group label");
+  assert.match(forms, /aria-label="Reason for dropping"/, "the reason picker has no group label");
+  assert.match(forms, /aria-checked=\{value === star\}/, "the stars don't expose which one is set");
+  assert.match(forms, /aria-checked=\{active\}/, "the reasons don't expose which one is set");
+  assert.match(edit, /<RatingPicker value=\{form\.rating\}/, "the edit panel never offers a rating");
+  assert.match(edit, /<ReasonPicker value=\{form\.drop_reason\}/, "the edit panel never asks why");
+  // A novel that was never dropped has no reason to give
+  assert.match(edit, /form\.status === "dropped" && \(/, "the reason is asked for on every status");
+});
+
 check("restoring a backup asks before it replaces the library", () => {
   assert.match(stats, /BtnSecondary label="Restore Backup"/, "the stats page has no restore action");
   assert.match(stats, /await onRestore\(\)/, "the confirm step never runs the restore");

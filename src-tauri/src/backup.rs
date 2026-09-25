@@ -18,7 +18,7 @@ use serde::Serialize;
 use crate::server::open_db;
 
 /// The export shape this build writes, and the newest one it will read back
-pub const EXPORT_VERSION: i64 = 4;
+pub const EXPORT_VERSION: i64 = 5;
 
 /// Daily snapshots kept next to the database
 pub const KEEP_DAILY: usize = 7;
@@ -41,7 +41,7 @@ pub const TABLES: [&str; 7] = [
 // Column names as the schema declares them, in order. A restore writes these
 // lists explicitly, so a column added by a migration has to be added here too —
 // `every_exported_column_is_restored` fails until it is.
-const NOVEL_COLUMNS: [&str; 12] = [
+const NOVEL_COLUMNS: [&str; 14] = [
     "id",
     "canonical_title",
     "status",
@@ -54,6 +54,8 @@ const NOVEL_COLUMNS: [&str; 12] = [
     "description",
     "tag_source",
     "tag_fetched_at",
+    "rating",
+    "drop_reason",
 ];
 const PROGRESS_COLUMNS: [&str; 5] = ["id", "novel_id", "chapter_raw", "chapter_sort", "updated_at"];
 const ALIAS_COLUMNS: [&str; 3] = ["id", "novel_id", "alias"];
@@ -339,11 +341,12 @@ mod tests {
     use rusqlite::Connection;
 
     /// The migrations, in the order sqlx applies them
-    const MIGRATIONS: [&str; 4] = [
+    const MIGRATIONS: [&str; 5] = [
         include_str!("../migrations/001_init.sql"),
         include_str!("../migrations/002_sources_unique.sql"),
         include_str!("../migrations/003_aliases_index.sql"),
         include_str!("../migrations/004_metadata_reading_log.sql"),
+        include_str!("../migrations/005_rating_and_drop_reason.sql"),
     ];
 
     /// A folder of its own per test, so one test's snapshots never see another's
@@ -366,10 +369,10 @@ mod tests {
     /// One row in every table an export carries
     fn seed(conn: &Connection) {
         conn.execute_batch(
-            "INSERT INTO novels (id, canonical_title, status, notes, cover_url, author, tags, tag_source)
+            "INSERT INTO novels (id, canonical_title, status, notes, cover_url, author, tags, tag_source, rating)
                VALUES (1, 'Reading One', 'reading', 'where I left off', 'https://c/1.jpg', 'Someone',
-                       '[\"LitRPG\"]', 'royalroad'),
-                      (2, 'Finished One', 'completed', '', '', NULL, NULL, NULL);
+                       '[\"LitRPG\"]', 'royalroad', 4),
+                      (2, 'Finished One', 'completed', '', '', NULL, NULL, NULL, 5);
              INSERT INTO progress (id, novel_id, chapter_raw, chapter_sort) VALUES (1, 1, 'Chapter 12', 12);
              INSERT INTO aliases (id, novel_id, alias) VALUES (1, 1, 'RO');
              INSERT INTO sources (id, novel_id, domain, url_pattern, is_preferred, last_seen_url)
@@ -603,6 +606,11 @@ mod tests {
             .unwrap();
         assert_eq!(timestamp, 1_700_000_000, "log timestamps are not re-dated");
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM tag_vocabulary"), 1, "learned tags come back");
+
+        let rating: Option<i64> = conn
+            .query_row("SELECT rating FROM novels WHERE id = 2", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rating, Some(5), "a rating survives the round trip");
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
         let _ = std::fs::remove_dir_all(source.parent().unwrap());

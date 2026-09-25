@@ -18,6 +18,8 @@ interface Novel {
   cover_url: string | null;
   author: string | null;
   tags: string[];
+  rating: number | null;
+  drop_reason: string | null;
   current_chapter_raw: string | null;
   chapter_sort: number | null;
   updated_at: string;
@@ -31,6 +33,8 @@ function toEditData(n: Novel): EditNovelData {
     ...n,
     author: n.author ?? "",
     tags: n.tags ?? [],
+    rating: n.rating ?? null,
+    drop_reason: n.drop_reason ?? "",
     current_chapter_raw: n.current_chapter_raw ?? "",
     cover_url: n.cover_url ?? "",
     last_seen_url: n.last_seen_url ?? "",

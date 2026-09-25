@@ -29,6 +29,8 @@ export interface TagStat {
   completed: number;
   dropped: number;
   chapters: number;
+  rated: number;
+  avg_rating: number | null;
 }
 
 export interface YearTag {
@@ -67,6 +69,7 @@ export interface Stats {
   weeks: Week[];
   activity: Day[];
   drop_points: Bucket[];
+  drop_reasons: Bucket[];
   tag_stats: TagStat[];
   tag_years: YearTag[];
 }
