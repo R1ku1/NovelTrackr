@@ -31,6 +31,12 @@ check("export lives on the stats page", () => {
   assert.match(stats, /BtnSecondary label="Export Data"/, "the stats page has no export action");
 });
 
+check("the edit panel shows a novel's own log", () => {
+  assert.match(edit, /getNovelHistory\(novel\.id\)/, "the panel never asks for this novel's history");
+  assert.match(edit, /FieldLabel text="History"/, "the history section has no label");
+  assert.match(edit, /aria-label="Reading history"/, "the history list is anonymous");
+});
+
 check("restoring a backup asks before it replaces the library", () => {
   assert.match(stats, /BtnSecondary label="Restore Backup"/, "the stats page has no restore action");
   assert.match(stats, /await onRestore\(\)/, "the confirm step never runs the restore");

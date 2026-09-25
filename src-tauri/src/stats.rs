@@ -72,6 +72,22 @@ pub struct YearTag {
     pub tags: Vec<Bucket>,
 }
 
+/// One line of a novel's reading log. `gained` is how far that entry moved the
+/// chapter — the same number the charts add up, zero for status changes.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct HistoryEntry {
+    pub action: String,
+    pub chapter: Option<f64>,
+    pub at: String,
+    pub gained: i64,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct NovelHistory {
+    pub chapters_30d: i64,
+    pub entries: Vec<HistoryEntry>,
+}
+
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Stats {
     pub status_counts: Vec<StatusCount>,
@@ -132,6 +148,55 @@ pub fn build_stats(db_path: &str) -> Result<Stats, String> {
     })
 }
 
+/// A novel's own reading log, newest first — the history behind the charts.
+/// `gained` comes from the same CHAPTER_ADVANCE the stats add up, so the timeline
+/// and the charts cannot disagree.
+pub fn novel_history(db_path: &str, novel_id: i64) -> Result<NovelHistory, String> {
+    let conn = open_db(db_path)?;
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT rl.action,
+                    rl.chapter,
+                    date(rl.timestamp, 'unixepoch') AS at,
+                    COALESCE(CAST(ROUND(a.gained) AS INTEGER), 0) AS gained
+             FROM reading_log rl
+             LEFT JOIN ({CHAPTER_ADVANCE}) a ON a.id = rl.id
+             WHERE rl.novel_id = ?1
+             ORDER BY rl.timestamp DESC, rl.id DESC",
+        ))
+        .map_err(|e| e.to_string())?;
+
+    let entries: Vec<HistoryEntry> = stmt
+        .query_map([novel_id], |row| {
+            Ok(HistoryEntry {
+                action: row.get(0)?,
+                chapter: row.get(1)?,
+                at: row.get(2)?,
+                gained: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // The same window the pace card uses, so "chapters in the last 30 days" means
+    // the same days in both places
+    let chapters_30d: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT COALESCE(CAST(ROUND(SUM(gained)) AS INTEGER), 0)
+                 FROM ({CHAPTER_ADVANCE})
+                 WHERE novel_id = ?1 AND day >= date('now', ?2)"
+            ),
+            rusqlite::params![novel_id, format!("-{} days", PACE_DAYS - 1)],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(NovelHistory { chapters_30d, entries })
+}
+
 
 /// Chapters gained by each `progressed` entry: how far the chapter moved since
 /// that novel's previous logged chapter, so a jump from 1 to 5 counts as four
@@ -142,11 +207,13 @@ pub fn build_stats(db_path: &str) -> Result<Stats, String> {
 /// that were already counted. Chapter numbers can be fractional (10.5), so a
 /// day's total is rounded to whole chapters — every stat built on it is a count.
 const CHAPTER_ADVANCE: &str = "
-  SELECT novel_id,
+  SELECT id,
+         novel_id,
          day,
          MAX(0, chapter - COALESCE(prev, chapter - 1)) AS gained
   FROM (
-    SELECT novel_id,
+    SELECT id,
+           novel_id,
            action,
            chapter,
            date(timestamp, 'unixepoch') AS day,
@@ -574,6 +641,79 @@ mod tests {
         assert_eq!(day(2).chapters, 2, "10 → 12 is two chapters");
         assert_eq!(day(3).chapters, 2, "20 → 21.5 rounds to the nearest whole chapter");
         assert_eq!(stats.chapters_30d, 9, "the pace numbers follow the per-day counts");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The per-novel timeline the edit panel shows
+    #[test]
+    fn the_history_lists_what_each_entry_gained() {
+        let path = seeded_db("history");
+        let history = novel_history(path.to_str().unwrap(), 1).unwrap();
+
+        let rows: Vec<(String, Option<f64>, i64)> = history
+            .entries
+            .iter()
+            .map(|e| (e.action.clone(), e.chapter, e.gained))
+            .collect();
+
+        assert_eq!(
+            rows,
+            vec![
+                ("progressed".to_string(), Some(20.0), 10),
+                ("progressed".to_string(), Some(10.0), 9),
+                ("started".to_string(), Some(1.0), 0),
+            ],
+            "newest first, and only progress entries carry chapters"
+        );
+        assert_eq!(history.chapters_30d, 19, "the same 30-day window as the pace card");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The timeline and the charts read the same rule, so they cannot drift apart
+    #[test]
+    fn the_history_adds_up_to_the_chart() {
+        let path = seeded_db("history-sums");
+        let history = novel_history(path.to_str().unwrap(), 1).unwrap();
+        let stats = build_stats(path.to_str().unwrap()).unwrap();
+
+        let logged: i64 = history.entries.iter().map(|e| e.gained).sum();
+        let charted: i64 = stats.activity.iter().map(|day| day.chapters).sum();
+
+        // Only novel 1 ever progressed in the seeded library
+        assert_eq!(logged, 19, "1 → 10 → 20");
+        assert_eq!(logged, charted, "a novel's log is the chart's data, counted once");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_jump_reads_as_the_chapters_it_covered() {
+        let path = fresh_db("history-jump");
+        let conn = Connection::open(&path).unwrap();
+
+        conn.execute(
+            "INSERT INTO novels (id, canonical_title, status) VALUES (1, 'Jumped', 'reading')",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO reading_log (novel_id, action, chapter, timestamp) VALUES
+               (1, 'started',    1, strftime('%s','now') - 2 * 86400),
+               (1, 'progressed', 5, strftime('%s','now') - 1 * 86400),
+               (1, 'progressed', 3, strftime('%s','now'))",
+        )
+        .unwrap();
+
+        let history = novel_history(path.to_str().unwrap(), 1).unwrap();
+        let gained: Vec<i64> = history.entries.iter().map(|e| e.gained).collect();
+
+        assert_eq!(
+            gained,
+            vec![0, 4, 0],
+            "newest first: a backwards correction adds nothing, the 1 → 5 jump adds four"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

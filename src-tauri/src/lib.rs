@@ -32,6 +32,11 @@ fn get_stats(path: tauri::State<'_, DbPath>) -> Result<stats::Stats, String> {
     stats::build_stats(&path.0)
 }
 
+#[tauri::command]
+fn get_novel_history(id: i64, path: tauri::State<'_, DbPath>) -> Result<stats::NovelHistory, String> {
+    stats::novel_history(&path.0, id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![
@@ -95,7 +100,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(DbPath(db_path))
-        .invoke_handler(tauri::generate_handler![save_export, get_stats, import_library])
+        .invoke_handler(tauri::generate_handler![save_export, get_stats, get_novel_history, import_library])
         .setup(|app| {
             let quit = MenuItemBuilder::new("Quit Noveltrackr").id("quit").build(app)?;
             let show = MenuItemBuilder::new("Open").id("show").build(app)?;

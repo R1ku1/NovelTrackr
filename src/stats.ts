@@ -36,6 +36,20 @@ export interface YearTag {
   tags: Bucket[];
 }
 
+// One line of a novel's reading log. `gained` is how many chapters that entry
+// moved — the same number the charts add up, zero for status changes.
+export interface HistoryEntry {
+  action: string;
+  chapter: number | null;
+  at: string;
+  gained: number;
+}
+
+export interface NovelHistory {
+  chapters_30d: number;
+  entries: HistoryEntry[];
+}
+
 export interface Stats {
   status_counts: StatusCount[];
   total_novels: number;
@@ -59,4 +73,9 @@ export interface Stats {
 
 export async function getStats(): Promise<Stats> {
   return invoke<Stats>("get_stats");
+}
+
+// One novel's own log, newest first — what the edit panel's history section shows
+export async function getNovelHistory(id: number): Promise<NovelHistory> {
+  return invoke<NovelHistory>("get_novel_history", { id });
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getTagVocabulary } from "./queries";
+import { getNovelHistory, type HistoryEntry, type NovelHistory } from "./stats";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   type Status,
@@ -160,6 +161,20 @@ function MiniBtn({ label, title, onClick }: { label: string; title: string; onCl
   );
 }
 
+// ── Reading history ───────────────────────────────────────────────────────────
+const ACTION_LABELS: Record<string, string> = {
+  started: "Started reading",
+  progressed: "Progressed",
+  completed: "Completed",
+  dropped: "Dropped",
+  paused: "Paused",
+};
+
+function historyLine(entry: HistoryEntry): string {
+  const action = ACTION_LABELS[entry.action] ?? entry.action;
+  return entry.chapter === null ? action : `${action} — chapter ${entry.chapter}`;
+}
+
 // ── Main Panel ────────────────────────────────────────────────────────────────
 export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Props) {
   const [form, setForm] = useState<EditNovelData | null>(null);
@@ -168,6 +183,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [vocabulary, setVocabulary] = useState<string[]>([]);
+  const [history, setHistory] = useState<NovelHistory | null>(null);
 
   // Animate open/close
   useEffect(() => {
@@ -188,6 +204,15 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
     getTagVocabulary()
       .then(setVocabulary)
       .catch((e: unknown) => console.error("tag vocabulary load failed:", e));
+  }, [novel]);
+
+  // This novel's own log, so the panel shows the numbers the charts counted
+  useEffect(() => {
+    if (!novel) return;
+    setHistory(null);
+    getNovelHistory(novel.id)
+      .then(setHistory)
+      .catch((e: unknown) => console.error("history load failed:", e));
   }, [novel]);
 
   function set<K extends keyof EditNovelData>(key: K, value: EditNovelData[K]) {
@@ -422,6 +447,46 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               rows={4}
             />
           </div>
+
+          {/* History — this novel's own log, read back. The chapters column is
+              how far each entry moved, so a jump shows what it was worth */}
+          {history && history.entries.length > 0 && (
+            <div>
+              <FieldLabel text="History" />
+              <div style={{ fontSize: 10, color: "#3a3a45", marginBottom: 8, paddingLeft: 1 }}>
+                {history.entries.length} {history.entries.length === 1 ? "entry" : "entries"} in the log
+                {history.chapters_30d > 0 && ` · ${history.chapters_30d} chapters in the last 30 days`}
+              </div>
+              <div
+                aria-label="Reading history"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  maxHeight: 220,
+                  overflowY: "auto",
+                  border: "1px solid #1e1e28",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  background: "#141418",
+                }}
+              >
+                {history.entries.map((entry, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12 }}>
+                    <span style={{ width: 74, color: "#555", fontVariantNumeric: "tabular-nums" }}>
+                      {entry.at}
+                    </span>
+                    <span style={{ flex: 1, color: "#9a9a9a" }}>{historyLine(entry)}</span>
+                    {entry.gained > 0 && (
+                      <span style={{ color: "#60a5fa", fontVariantNumeric: "tabular-nums" }}>
+                        +{entry.gained}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         </div>
       )}
