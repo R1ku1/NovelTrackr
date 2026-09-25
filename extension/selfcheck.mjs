@@ -314,24 +314,18 @@ function makeDom() {
   });
   vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
 
-  // A cover check, plus — because nothing on this page says how far the site has
-  // got — one bounded look-again for a chapter list
-  assert.equal(timers.length, 2, "a cover check and one look-again are pending");
+  // A NovelUpdates page queues its cover check and nothing else: its release list is
+  // other sites' numbering, so there is no chapter count to wait for (check 31)
+  assert.equal(timers.length, 1, "the cover check is the only work this page queues");
 
   // A second run() (turbo/pjax navigation) must replace the pending cover timer,
   // not add a second one
   ctx.run();
-  assert.equal(timers[1], null, "re-running must cancel the previous cover timer");
-  assert.equal(
-    timers.filter(Boolean).length,
-    3,
-    "two look-agains and one cover check may be pending — never two cover checks",
-  );
+  assert.equal(timers[0], null, "re-running must cancel the previous cover timer");
+  assert.equal(timers.filter(Boolean).length, 1, "only one cover check may be pending");
 
-  // Firing what the second run queued finds the cover and reports this page once.
-  // The look-again finds nothing here, so it only schedules its next attempt.
-  timers[2]();
-  timers[3]();
+  // Firing it finds the cover and reports this page once
+  timers.filter(Boolean).at(-1)();
   const sent = chrome.calls.messages;
   assert.equal(sent.length, 1, "a found cover must be sent once");
   assert.equal(sent[0].type, "COVER_DETECTED");
@@ -341,8 +335,7 @@ function makeDom() {
   // If the page navigates in-page while we wait, the stale title must not be sent
   ctx.run();
   location.href = "https://www.novelupdates.com/series/something-else/";
-  const lastTwo = timers.map((fn, id) => [id, fn]).filter(([, fn]) => fn).slice(-2);
-  lastTwo.forEach(([, fn]) => fn());
+  timers.filter(Boolean).at(-1)();
   assert.equal(chrome.calls.messages.length, 1, "a page change must drop the pending detection");
 
   console.log("\u2713 content.js keeps one pending cover check and drops it when the page changes");
@@ -1455,6 +1448,67 @@ function makeDom() {
     "and it must carry the real numbers, because the app only ever raises these",
   );
   console.log("\u2713 content.js reports a fuller chapter list over the stub it was served first");
+}
+
+
+// ── 31. content.js: NovelUpdates is a database, not a chapter list ────────────
+{
+  // Its releases read "c273" (another group's numbering), its "Status in COO" is the
+  // original's length, and its own reviews carry "Status: c140". None of those can be
+  // compared with the chapter number you read on the site you actually read on, and
+  // the app only ever raises that number, so a wrong one would stick.
+  const anchor = (text, href) => ({
+    tagName: "A",
+    textContent: text,
+    className: "",
+    getAttribute: (name) => (name === "href" ? href : null),
+    hasAttribute: () => false,
+  });
+  const page = [
+    anchor("c273", "https://kjtranslations.com/semi-coercive-imperialist/chapter-273"),
+    anchor("c272", "https://kjtranslations.com/semi-coercive-imperialist/chapter-272"),
+    anchor("Status: c140", "https://www.novelupdates.com/review/1234"),
+  ];
+  const tags = [{ textContent: "Action" }, { textContent: " Drama " }];
+
+  const location = {
+    href: "https://www.novelupdates.com/series/semi-coercive-imperialist/",
+    hostname: "www.novelupdates.com",
+    pathname: "/series/semi-coercive-imperialist/",
+  };
+  const chrome = makeChrome({});
+  const document = {
+    title: "Semi-Coercive Imperialist - Novel Updates",
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel.includes("showtag") ? tags : sel === "a" ? page : []),
+    addEventListener: () => {},
+  };
+
+  const timers = [];
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const metadata = chrome.calls.messages.find((m) => m.type === "METADATA_DETECTED");
+  assert.ok(metadata, "NovelUpdates' own job — tags — must still ride along");
+  assert.deepEqual([...metadata.payload.tags], ["Action", "Drama"], "the page's tags are reported");
+  assert.equal(
+    metadata.payload.latest,
+    null,
+    "another group's release numbers are not this novel's chapter count",
+  );
+  assert.equal(
+    timers.filter(Boolean).length,
+    1,
+    "only the cover check is pending: there is no chapter list here to wait for",
+  );
+  console.log("\u2713 content.js takes NovelUpdates' tags and leaves its chapter numbers alone");
 }
 
 

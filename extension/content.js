@@ -787,8 +787,21 @@ function run() {
     }).catch((e) => console.log("[Noveltrackr] metadata message failed:", e));
   };
 
+  const onNu = onNovelUpdates();
+
   if (latest) {
     console.log("[Noveltrackr] latest chapter on this page:", latest);
+  } else if (onNu) {
+    // NovelUpdates is a database of other sites' releases: its series pages carry
+    // "KJ Translations c273", "Status in COO 260+ Chapters", and reviewers' own
+    // "Status: c140" notes. Every one of those is numbered by whatever group or
+    // original it belongs to, which is not comparable with the chapter number you
+    // read on the site you actually read on. Taking a maximum from here would be a
+    // guess, and the app only ever raises this number, so a wrong one would stick.
+    // Tags, author and cover are NU's job; the count is left unknown.
+    console.log(
+      "[Noveltrackr] NovelUpdates lists other sites' releases, not one chapter list — leaving the count unknown"
+    );
   } else {
     console.log("[Noveltrackr] no chapter list on this page yet — looking again while it settles");
   }
@@ -797,8 +810,9 @@ function run() {
 
   // Royal Road's first HTML carries only a few chapters and draws the rest
   // afterwards ("Loading volumes"), so the scan above is usually a stub — keep
-  // looking, and report anything better than what was just sent
-  watchForLateLatest(null, report, latest);
+  // looking, and report anything better than what was just sent. On NovelUpdates
+  // there is nothing of that sort to wait for.
+  if (!onNu) watchForLateLatest(null, report, latest);
 
   scheduleCoverDetection(indexTitle, tags.length > 0 ? { author, tags, source } : { author });
 }
