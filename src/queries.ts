@@ -14,6 +14,11 @@ export interface NovelRow {
   tags: string[];
   rating: number | null;
   drop_reason: string | null;
+  latest_chapter: number | null;
+  latest_chapter_confidence: string | null;
+  latest_chapter_seen_at: number | null;
+  total_chapters: number | null;
+  total_chapters_seen_at: number | null;
   current_chapter_raw: string | null;
   chapter_sort: number | null;
   updated_at: string;
@@ -103,6 +108,8 @@ export async function getAllNovels(): Promise<NovelRow[]> {
     SELECT
       n.id, n.canonical_title, n.status, n.notes, n.cover_url, n.author, n.tags,
       n.rating, n.drop_reason,
+      n.latest_chapter, n.latest_chapter_confidence, n.latest_chapter_seen_at,
+      n.total_chapters, n.total_chapters_seen_at,
       p.chapter_raw as current_chapter_raw,
       p.chapter_sort,
       COALESCE(p.updated_at, n.updated_at) as updated_at,

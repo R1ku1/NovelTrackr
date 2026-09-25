@@ -431,6 +431,154 @@ function scheduleCoverDetection(indexTitle, meta = {}) {
   }, 1000);
 }
 
+// ── Latest chapter (best effort) ──────────────────────────────────────────────
+// Everything here reads the page the user is already on: no extra requests, no
+// polling, no dedicated table-of-contents visit. Each branch either knows the
+// answer or reports nothing at all — an empty result must never reach the app as
+// "you are up to date", because unknown and zero are different things.
+const MAX_MENU_OPTIONS = 200;
+const MIN_TOC_FOR_TOTAL = 5;
+
+// "Chapter 41", "Ch. 41", "Episode 41", "41" — anything else is not a chapter
+function chapterNumber(text) {
+  if (!text) return null;
+
+  const trimmed = String(text).trim();
+  if (!trimmed || trimmed.length > 40) return null;
+
+  const match =
+    trimmed.match(/^(?:chapter|chap|ch|episode|ep)\.?\s*(\d+(?:\.\d+)?)/i) ??
+    trimmed.match(/^(\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+
+  const value = parseFloat(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+const NEXT_TEXT = [/^next(\s+(chapter|ch|episode))?\b/i, /^next\s*[›»→]/i, /^[›»→]$/];
+const PREV_TEXT = [/^(prev|previous|back)(\s+(chapter|ch|episode))?\b/i, /^[‹«←]/];
+
+// A control is "live", "dead" (rendered but disabled) or "missing". Only a live
+// one is evidence that there is somewhere to go.
+function controlState(patterns) {
+  let dead = false;
+
+  for (const el of document.querySelectorAll("a, button, span")) {
+    const text = (el.textContent || "").trim();
+    if (!text || text.length > 30) continue;
+    if (!patterns.some((re) => re.test(text))) continue;
+
+    const linkable = el.tagName === "A" ? Boolean(el.getAttribute("href")) : el.tagName === "BUTTON";
+    const disabled =
+      el.hasAttribute("disabled") ||
+      el.getAttribute("aria-disabled") === "true" ||
+      /disabled|is-disabled|no-link/.test(el.className || "") ||
+      (el.tagName === "A" && !el.getAttribute("href"));
+
+    if (linkable && !disabled) return "live";
+    dead = true;
+  }
+
+  return dead ? "dead" : "missing";
+}
+
+// A chapter menu lists what the site has. The highest option is the newest chapter
+// — but only a menu that also contains the chapter being read proves the list is
+// the real one, so anything else is reported as a lower bound. A stale menu that
+// stops short of where the reader already is says nothing.
+function latestFromMenu(current) {
+  let best = null;
+
+  for (const select of document.querySelectorAll("select")) {
+    const options = [...select.options].slice(0, MAX_MENU_OPTIONS);
+    // A list of bare numbers could be anything (a sort, a font size): a chapter
+    // menu spells the word out at least once
+    const spelled = options.some((option) =>
+      /^(chapter|chap|ch|episode|ep)\.?\s*\d/i.test((option.textContent || "").trim())
+    );
+    if (!spelled) continue;
+
+    const numbers = options
+      .map((option) => chapterNumber(option.textContent) ?? chapterNumber(option.value))
+      .filter((n) => n !== null);
+    if (numbers.length < 2) continue;
+
+    const newest = Math.max(...numbers);
+    const candidate = {
+      latest_chapter: newest,
+      confidence: current !== null && numbers.includes(current) ? "exact" : "lower_bound",
+    };
+
+    const better =
+      best === null ||
+      candidate.latest_chapter > best.latest_chapter ||
+      (candidate.confidence === "exact" && best.confidence !== "exact");
+    if (better) best = candidate;
+  }
+
+  if (best && best.confidence === "lower_bound" && current !== null && best.latest_chapter <= current) {
+    return null;
+  }
+
+  return best;
+}
+
+// Every chapter number an index page lists
+function tocChapterNumbers() {
+  const numbers = new Set();
+
+  for (const link of document.querySelectorAll("a")) {
+    const number = chapterNumber(link.textContent);
+    if (number !== null) numbers.add(number);
+    if (numbers.size >= 1000) break;
+  }
+
+  return [...numbers];
+}
+
+// An index page that reads like one novel's table of contents. A whole ToC runs
+// up from chapter one, so anything else — a genre listing, a chapter page whose
+// URL carries no chapter marker, a paginated ToC — could be mixing numbers from
+// several novels and reports nothing at all rather than poisoning the count.
+function tocLatest() {
+  if (!isIndexPage()) return null;
+
+  const numbers = tocChapterNumbers();
+  if (numbers.length < 2) return null;
+
+  const newest = Math.max(...numbers);
+  if (newest > numbers.length + 2) return null;
+
+  const result = { latest_chapter: newest, confidence: "exact" };
+
+  // A total needs more than a handful of entries to be worth storing
+  if (numbers.length >= MIN_TOC_FOR_TOTAL) {
+    result.total_chapters = numbers.length;
+  }
+
+  return result;
+}
+
+// What this page says about the site's own chapter count, if anything at all
+function detectLatestChapters(current) {
+  // 1. A table of contents lists the chapters themselves
+  const toc = tocLatest();
+  if (toc) return toc;
+
+  // 2. A chapter menu on the page lists what the site has
+  const menu = latestFromMenu(current);
+  if (menu) return menu;
+
+  // 3. No way forward on a chapter page means this is the newest chapter — but
+  //    only when the page renders the way back too. A page showing neither
+  //    control (a login wall, a script that hasn't run) proves nothing.
+  if (current !== null && controlState(PREV_TEXT) === "live" && controlState(NEXT_TEXT) !== "live") {
+    return { latest_chapter: current, confidence: "caught_up" };
+  }
+
+  return null;
+}
+
 function run() {
   console.log("[Noveltrackr] run() called on:", window.location.href);
 
@@ -490,7 +638,10 @@ function run() {
 
   // ── Chapter page ──────────────────────────────────────────────────────────
   if (result && result.chapter && result.title && /\d/.test(result.chapter)) {
-    console.log("[Noveltrackr] chapter page:", result);
+    const current = chapterNumber(result.chapter);
+    const latest = detectLatestChapters(current);
+    console.log("[Noveltrackr] chapter page:", result, "latest:", latest);
+
     chrome.runtime.sendMessage({
       type: "CHAPTER_DETECTED",
       payload: {
@@ -498,6 +649,7 @@ function run() {
         chapter: result.chapter,
         url: window.location.href,
         domain: hostName(),
+        latest,
       }
     }).catch((e) => console.log("[Noveltrackr] sendMessage failed:", e));
     return;
@@ -542,11 +694,13 @@ function run() {
   // already tracks, so no badge or prompt is involved (plan §4.1).
   const author = extractAuthor();
   const { source, tags } = extractTags();
+  // An index page is the best evidence there is: it lists the chapters themselves
+  const latest = detectLatestChapters(null);
 
-  if (author || tags.length > 0) {
+  if (author || tags.length > 0 || latest) {
     chrome.runtime.sendMessage({
       type: "METADATA_DETECTED",
-      payload: { title: indexTitle, author, tags, source },
+      payload: { title: indexTitle, author, tags, source, latest },
     }).catch((e) => console.log("[Noveltrackr] metadata message failed:", e));
   }
 

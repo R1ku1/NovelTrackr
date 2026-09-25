@@ -58,6 +58,16 @@ export interface Backlog {
   oldest_days: number;
 }
 
+// How far behind the sites the library is. `known`/`total` are the coverage the
+// headline reports itself against, so unknown novels are never read as zero.
+export interface Unread {
+  chapters: number;
+  novels: number;
+  known: number;
+  stale: number;
+  total: number;
+}
+
 // Where a novel is read — its preferred source, so nothing is counted twice
 export interface SourceStat {
   domain: string;
@@ -95,6 +105,7 @@ export interface Stats {
   reading_now: NovelPace[];
   fastest_finishes: NovelPace[];
   backlog: Backlog;
+  unread: Unread;
   tag_stats: TagStat[];
   tag_years: YearTag[];
 }

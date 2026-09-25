@@ -105,6 +105,16 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#1c1a12",
     marginBottom: 4,
   },
+  headline: {
+    fontSize: 13,
+    color: "#9a9a9a",
+    lineHeight: 1.5,
+    border: "1px solid #22222e",
+    borderLeft: "2px solid #60a5fa55",
+    borderRadius: 8,
+    padding: "10px 14px",
+    background: "#13131a",
+  },
   state: {
     flex: 1,
     display: "flex",
@@ -492,6 +502,19 @@ export default function StatsPanel({
       {hasLog && stats.active_days < 7 && (
         <div style={styles.notice}>
           Only {plural(stats.active_days, "day")} of activity so far. Pace and streaks get sharper as the log grows.
+        </div>
+      )}
+
+      {/* Best effort, and it says so: a novel the extension has never seen a
+          chapter count for is unknown, not up to date */}
+      {stats.unread.known > 0 && (
+        <div style={styles.headline}>
+          {stats.unread.chapters > 0
+            ? `${plural(stats.unread.chapters, "unread chapter")} across ${plural(stats.unread.novels, "novel")}`
+            : "Nothing unread in the novels you are reading"}
+          {" — "}
+          of your {plural(stats.unread.total, "novel")}, {stats.unread.known} have known data
+          {stats.unread.stale > 0 && ` (${stats.unread.stale} not confirmed in 30 days)`}
         </div>
       )}
 

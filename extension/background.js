@@ -213,9 +213,12 @@ async function handleNuConfirm(tabId, candidateUrl) {
 // Silent on purpose: no badge, no prompt. The page is evidence for a novel the
 // user already has; if it isn't in the library, the cover flow offers to add it.
 // The app fills only empty fields, so this can never overwrite a manual edit.
-async function handleMetadataDetection({ title, author, tags, source, url, tabId }) {
+async function handleMetadataDetection({ title, author, tags, source, url, tabId, latest }) {
   const hasTags = Boolean(tags && tags.length);
-  if (!author && !hasTags) return;
+  const observed = latestFields(latest);
+
+  // Nothing to say about this page at all — no author, no tags, no count
+  if (!author && !hasTags && Object.keys(observed).length === 0) return;
 
   const running = await isAppRunning();
   if (!running) {
@@ -243,6 +246,7 @@ async function handleMetadataDetection({ title, author, tags, source, url, tabId
         author,
         tags: hasTags ? tags : null,
         source: hasTags ? source : null,
+        ...observed,
       }),
     });
 
@@ -340,12 +344,44 @@ async function saveLocalMapping(domain, detectedTitle, novelId) {
   await chrome.storage.local.set({ [key]: novelId });
 }
 
+// ── Latest chapter (best effort) ──────────────────────────────────────────────
+// The page said how far the site has got, if it said anything at all. A missing
+// field means "no observation" to the app, so a page without evidence contributes
+// nothing rather than a guess.
+function latestFields(latest) {
+  if (!latest || typeof latest.latest_chapter !== "number") return {};
+
+  const fields = {
+    latest_chapter: latest.latest_chapter,
+    latest_chapter_confidence: latest.confidence,
+  };
+  if (typeof latest.total_chapters === "number") fields.total_chapters = latest.total_chapters;
+  return fields;
+}
+
+// Silent: the page is evidence for a novel the user already reads, so no badge and
+// no prompt. Only ever called once the novel is actually known.
+async function reportLatest(novelId, observed) {
+  if (Object.keys(observed).length === 0) return;
+
+  try {
+    await fetch(`${API}/metadata`, {
+      method: "POST",
+      headers: API_HEADERS,
+      body: JSON.stringify({ novel_id: novelId, ...observed }),
+    });
+  } catch (e) {
+    console.log("[Noveltrackr] latest chapter not reported:", e.message);
+  }
+}
+
 // ── Main detection handler ────────────────────────────────────────────────────
-async function handleDetection({ title, chapter, url, domain, tabId }) {
+async function handleDetection({ title, chapter, url, domain, tabId, latest }) {
+  const observed = latestFields(latest);
   const running = await isAppRunning();
 
   if (!running) {
-    await setPending(tabId, { title, chapter, url, domain, appOffline: true });
+    await setPending(tabId, { title, chapter, url, domain, latest, appOffline: true });
     chrome.action.setBadgeText({ text: "!", tabId });
     chrome.action.setBadgeBackgroundColor({ color: "#555", tabId });
     return;
@@ -354,14 +390,20 @@ async function handleDetection({ title, chapter, url, domain, tabId }) {
   const knownNovelId = await getKnownMapping(domain, title);
 
   if (knownNovelId) {
-    await setPending(tabId, { title, chapter, url, domain, novelId: knownNovelId, known: true, tabId });
+    await setPending(
+      tabId,
+      { title, chapter, url, domain, latest, novelId: knownNovelId, known: true, tabId },
+    );
     chrome.action.setBadgeText({ text: "↑", tabId });
     chrome.action.setBadgeBackgroundColor({ color: "#60a5fa", tabId });
+
+    // No click needed: reading a chapter is enough to keep the number current
+    await reportLatest(knownNovelId, observed);
   } else {
     try {
       const novels = await getNovels();
       const matches = findMatches(title, novels);
-      await setPending(tabId, { title, chapter, url, domain, matches, known: false, tabId });
+      await setPending(tabId, { title, chapter, url, domain, latest, matches, known: false, tabId });
       chrome.action.setBadgeText({ text: "?", tabId });
       chrome.action.setBadgeBackgroundColor({ color: "#facc15", tabId });
     } catch {
@@ -396,7 +438,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "CONFIRM_UPDATE") {
-    const { novelId, chapter, url, domain, detectedTitle, tabId } = message.payload;
+    const { novelId, chapter, url, domain, detectedTitle, tabId, latest } = message.payload;
 
     fetch(`${API}/progress`, {
       method: "POST",
@@ -406,6 +448,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chapter_raw: chapter,
         source_url: url,
         domain,
+        ...latestFields(latest),
       }),
     })
     .then(async (res) => {

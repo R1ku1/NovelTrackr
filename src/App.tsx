@@ -5,6 +5,7 @@ import StatsPanel from "./StatsPanel";
 import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
 import { exportToFile, importFromFile } from "./queries";
 import { CoverImage } from "./formComponents";
+import { isStale, progressPercent, seenDate, unreadChapters } from "./latest";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -20,6 +21,11 @@ interface Novel {
   tags: string[];
   rating: number | null;
   drop_reason: string | null;
+  latest_chapter: number | null;
+  latest_chapter_confidence: string | null;
+  latest_chapter_seen_at: number | null;
+  total_chapters: number | null;
+  total_chapters_seen_at: number | null;
   current_chapter_raw: string | null;
   chapter_sort: number | null;
   updated_at: string;
@@ -413,6 +419,29 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "1px 6px",
     borderRadius: 4,
   },
+  newBadge: {
+    display: "inline-block",
+    fontSize: 10,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase" as const,
+    padding: "1px 7px",
+    marginLeft: 8,
+    borderRadius: 20,
+    fontVariantNumeric: "tabular-nums",
+  },
+  chapterBar: {
+    width: 90,
+    height: 3,
+    marginTop: 6,
+    background: "#1a1a22",
+    borderRadius: 2,
+    overflow: "hidden" as const,
+  },
+  chapterBarFill: {
+    height: "100%",
+    background: "#3f78b5",
+    borderRadius: 2,
+  },
 
   chapterCell: {
     color: "#999",
@@ -689,6 +718,57 @@ function QuickUpdateModal({
   );
 }
 
+// ── Latest chapter (best effort) ──────────────────────────────────────────────
+// "3 new" when the site is ahead of the reader. Nothing at all otherwise — an
+// unknown latest chapter must never look like zero, or the library would claim
+// every unbrowsed novel is up to date.
+function getNewBadgeStyle(stale: boolean): React.CSSProperties {
+  const colour = stale ? "#777" : "#60a5fa";
+  return {
+    ...styles.newBadge,
+    color: colour,
+    background: `${colour}15`,
+    border: `1px solid ${colour}55`,
+  };
+}
+
+function NewChaptersBadge({ novel }: { novel: Novel }) {
+  const unread = unreadChapters(novel.latest_chapter, novel.chapter_sort);
+  if (unread === null || unread === 0) return null;
+
+  const stale = isStale(novel.latest_chapter_seen_at);
+  const seen = seenDate(novel.latest_chapter_seen_at);
+
+  return (
+    <span
+      style={getNewBadgeStyle(stale)}
+      title={stale
+        ? `${unread} unread — last confirmed ${seen ?? "never"}`
+        : `${unread} unread (the site is at chapter ${novel.latest_chapter})`}
+    >
+      {unread} new
+    </span>
+  );
+}
+
+// A bar only when a real chapter count is known: without one there is nothing
+// honest to draw
+function NovelProgress({ novel }: { novel: Novel }) {
+  const percent = progressPercent(novel.chapter_sort, novel.total_chapters);
+  if (percent === null) return null;
+
+  return (
+    <div
+      role="img"
+      style={styles.chapterBar}
+      title={`Chapter ${novel.chapter_sort} of ${novel.total_chapters}`}
+      aria-label={`${Math.round(percent * 100)}% through ${novel.canonical_title}`}
+    >
+      <div style={{ ...styles.chapterBarFill, width: `${percent * 100}%` }} />
+    </div>
+  );
+}
+
 // ── List Row ──────────────────────────────────────────────────────────────────
 // ── Source Link ───────────────────────────────────────────────────────────────
 // Opens in the OS browser — the app window must never navigate away from itself
@@ -780,6 +860,8 @@ function ListRow({
       </td>
       <td style={{ ...styles.td, ...styles.chapterCell }}>
         {novel.current_chapter_raw ?? <span style={{ color: "#333" }}>—</span>}
+        <NewChaptersBadge novel={novel} />
+        <NovelProgress novel={novel} />
       </td>
       <td style={{ ...styles.td, ...styles.sourceCell }}>
         {novel.last_seen_url
@@ -835,9 +917,11 @@ function GridCard({
       <div style={styles.gridMeta}>
         <span style={{ color: "#666", fontSize: 12 }}>
           {novel.current_chapter_raw ?? "Not started"}
+          <NewChaptersBadge novel={novel} />
         </span>
         <UpdateButton onClick={() => onQuickUpdate(novel)} />
       </div>
+      <NovelProgress novel={novel} />
     </div>
   );
 }

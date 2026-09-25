@@ -18,7 +18,7 @@ use serde::Serialize;
 use crate::server::open_db;
 
 /// The export shape this build writes, and the newest one it will read back
-pub const EXPORT_VERSION: i64 = 5;
+pub const EXPORT_VERSION: i64 = 6;
 
 /// Daily snapshots kept next to the database
 pub const KEEP_DAILY: usize = 7;
@@ -41,7 +41,7 @@ pub const TABLES: [&str; 7] = [
 // Column names as the schema declares them, in order. A restore writes these
 // lists explicitly, so a column added by a migration has to be added here too —
 // `every_exported_column_is_restored` fails until it is.
-const NOVEL_COLUMNS: [&str; 14] = [
+const NOVEL_COLUMNS: [&str; 19] = [
     "id",
     "canonical_title",
     "status",
@@ -56,6 +56,11 @@ const NOVEL_COLUMNS: [&str; 14] = [
     "tag_fetched_at",
     "rating",
     "drop_reason",
+    "latest_chapter",
+    "latest_chapter_confidence",
+    "latest_chapter_seen_at",
+    "total_chapters",
+    "total_chapters_seen_at",
 ];
 const PROGRESS_COLUMNS: [&str; 5] = ["id", "novel_id", "chapter_raw", "chapter_sort", "updated_at"];
 const ALIAS_COLUMNS: [&str; 3] = ["id", "novel_id", "alias"];
@@ -341,12 +346,13 @@ mod tests {
     use rusqlite::Connection;
 
     /// The migrations, in the order sqlx applies them
-    const MIGRATIONS: [&str; 5] = [
+    const MIGRATIONS: [&str; 6] = [
         include_str!("../migrations/001_init.sql"),
         include_str!("../migrations/002_sources_unique.sql"),
         include_str!("../migrations/003_aliases_index.sql"),
         include_str!("../migrations/004_metadata_reading_log.sql"),
         include_str!("../migrations/005_rating_and_drop_reason.sql"),
+        include_str!("../migrations/006_latest_chapter.sql"),
     ];
 
     /// A folder of its own per test, so one test's snapshots never see another's

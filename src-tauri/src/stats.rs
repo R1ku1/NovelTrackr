@@ -156,6 +156,7 @@ pub struct Stats {
     pub reading_now: Vec<NovelPace>,
     pub fastest_finishes: Vec<NovelPace>,
     pub backlog: Backlog,
+    pub unread: Unread,
     pub tag_stats: Vec<TagStat>,
     pub tag_years: Vec<YearTag>,
 }
@@ -197,6 +198,7 @@ pub fn build_stats(db_path: &str) -> Result<Stats, String> {
         reading_now: reading_now(&conn)?,
         fastest_finishes: fastest_finishes(&conn)?,
         backlog: backlog(&conn)?,
+        unread: unread(&conn)?,
         tag_stats: tag_stats(&conn)?,
         tag_years: tag_years(&conn)?,
         activity,
@@ -276,6 +278,21 @@ const CHAPTER_ADVANCE: &str = "
     FROM reading_log
   )
   WHERE action = 'progressed' AND chapter IS NOT NULL";
+
+/// A latest chapter nobody has confirmed in this long is shown, but muted. The
+/// library row greys out at the same age (src/latest.ts) — the two have to agree.
+const STALE_DAYS: i64 = 30;
+
+/// How far behind the sites the library is. Best effort by design: a novel nobody
+/// has browsed lately has no number at all, and is never counted as zero.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Unread {
+    pub chapters: i64,
+    pub novels: i64,
+    pub known: i64,
+    pub stale: i64,
+    pub total: i64,
+}
 
 /// One row per day for the last year, so the heatmap, streaks and pace all read
 /// from the same series. `chapters` is chapters read, not entries: a day whose
@@ -590,6 +607,45 @@ fn per_day(chapters: i64, days: i64) -> f64 {
     chapters as f64 / days.max(1) as f64
 }
 
+/// How far behind the sites the library is. Only novels being read count towards
+/// the gap — a finished novel that has since gained chapters is not a backlog, and
+/// one with no latest chapter is unknown rather than zero. `known` and `total` are
+/// what make the headline honest about its own coverage.
+fn unread(conn: &Connection) -> Result<Unread, String> {
+    conn.query_row(
+        &format!(
+            "WITH gaps AS (
+               SELECT n.latest_chapter - p.chapter_sort AS gap
+               FROM novels n
+               JOIN progress p ON p.novel_id = n.id
+               WHERE n.status IN ('reading', 'paused')
+                 AND n.latest_chapter IS NOT NULL
+                 AND p.chapter_sort IS NOT NULL
+                 AND n.latest_chapter > p.chapter_sort
+             )
+             SELECT (SELECT COUNT(*) FROM novels),
+                    (SELECT COUNT(*) FROM novels WHERE latest_chapter IS NOT NULL),
+                    (SELECT COUNT(*) FROM novels
+                      WHERE latest_chapter IS NOT NULL
+                        AND (latest_chapter_seen_at IS NULL
+                             OR latest_chapter_seen_at < strftime('%s','now') - ?1)),
+                    (SELECT COUNT(*) FROM gaps),
+                    (SELECT COALESCE(CAST(ROUND(SUM(gap)) AS INTEGER), 0) FROM gaps)"
+        ),
+        rusqlite::params![STALE_DAYS * 86_400],
+        |row| {
+            Ok(Unread {
+                total: row.get(0)?,
+                known: row.get(1)?,
+                stale: row.get(2)?,
+                novels: row.get(3)?,
+                chapters: row.get(4)?,
+            })
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
 /// Planned novels by how long they have been waiting. Paused ones don't count:
 /// they were started, so they are not a plan being put off.
 fn backlog(conn: &Connection) -> Result<Backlog, String> {
@@ -760,12 +816,13 @@ mod tests {
     use super::*;
 
     /// The migrations, in the order sqlx applies them
-    const MIGRATIONS: [&str; 5] = [
+    const MIGRATIONS: [&str; 6] = [
         include_str!("../migrations/001_init.sql"),
         include_str!("../migrations/002_sources_unique.sql"),
         include_str!("../migrations/003_aliases_index.sql"),
         include_str!("../migrations/004_metadata_reading_log.sql"),
         include_str!("../migrations/005_rating_and_drop_reason.sql"),
+        include_str!("../migrations/006_latest_chapter.sql"),
     ];
 
     /// A throwaway database with the real schema, as an install would have it
@@ -1054,6 +1111,11 @@ mod tests {
         assert!(stats.tag_stats.is_empty());
         assert!(stats.tag_years.is_empty());
         assert!(stats.drop_reasons.is_empty());
+        assert_eq!(
+            stats.unread,
+            Unread { chapters: 0, novels: 0, known: 0, stale: 0, total: 0 },
+            "an empty library is not behind on anything"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1199,6 +1261,73 @@ mod tests {
             reasons,
             vec![("Lost interest".to_string(), 2), ("Too slow".to_string(), 1)],
             "biggest reason first"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The unread headline is best effort: unknown is not zero, and a finished
+    /// novel that gained chapters is not something to catch up on
+    #[test]
+    fn unread_counts_only_novels_with_a_known_latest_chapter() {
+        let path = fresh_db("unread");
+        let conn = Connection::open(&path).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO novels (id, canonical_title, status, latest_chapter,
+                                 latest_chapter_confidence, latest_chapter_seen_at) VALUES
+               (1, 'Behind',    'reading',   420,  'exact',     strftime('%s','now')),
+               (2, 'Caught up', 'reading',   400,  'caught_up', strftime('%s','now')),
+               (3, 'Stale',     'paused',    500,  'exact',     strftime('%s','now') - 40 * 86400),
+               (4, 'Unknown',   'reading',   NULL, NULL,        NULL),
+               (5, 'Finished',  'completed', 900,  'exact',     strftime('%s','now'));
+
+             INSERT INTO progress (novel_id, chapter_raw, chapter_sort) VALUES
+               (1, 'Chapter 400', 400),
+               (2, 'Chapter 400', 400),
+               (3, 'Chapter 450', 450),
+               (4, 'Chapter 10',  10),
+               (5, 'Chapter 900', 900)",
+        )
+        .unwrap();
+
+        let stats = build_stats(path.to_str().unwrap()).unwrap();
+        let unread = &stats.unread;
+
+        assert_eq!(unread.chapters, 20 + 50, "400 to 420, and 450 to 500");
+        assert_eq!(unread.novels, 2, "the finished novel is not a backlog to clear");
+        assert_eq!(unread.known, 4, "four novels have a number at all");
+        assert_eq!(unread.stale, 1, "only one has gone unconfirmed for 30+ days");
+        assert_eq!(unread.total, 5, "the coverage the headline reports itself against");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The badge and the headline have to agree on when a number is old
+    #[test]
+    fn the_staleness_threshold_is_thirty_days() {
+        assert_eq!(STALE_DAYS, 30, "changing this changes what the library greys out");
+
+        let path = fresh_db("stale-threshold");
+        let conn = Connection::open(&path).unwrap();
+
+        conn.execute_batch(&format!(
+            "INSERT INTO novels (id, canonical_title, latest_chapter, latest_chapter_seen_at) VALUES
+               (1, 'Fresh', 400, strftime('%s','now') - {} * 86400),
+               (2, 'Old',   400, strftime('%s','now') - {} * 86400),
+               (3, 'Never', 400, NULL)",
+            STALE_DAYS - 1,
+            STALE_DAYS + 1,
+        ))
+        .unwrap();
+
+        let stats = build_stats(path.to_str().unwrap()).unwrap();
+
+        assert_eq!(stats.unread.known, 3);
+        assert_eq!(
+            stats.unread.stale, 2,
+            "one day inside the window is current, one day past it is not, and a \
+             number nobody ever confirmed is as old as it gets"
         );
 
         let _ = std::fs::remove_file(&path);

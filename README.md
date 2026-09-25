@@ -22,6 +22,7 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - Rate novels 1–5 and record why you dropped one; both feed the stats rather than sitting unused
 - Export the full library to JSON, and restore it — one transaction, so a bad file changes nothing
 - Automatic database snapshots — one a day plus one before every restore, next to the database in `backups/`
+- "N new" badge, per-novel progress bar and an unread headline — built from the site's own chapter count, filled in as you browse and left unknown when no page has said
 - Runs in system tray — close the window without closing the app
 
 ### Browser Extension (Chrome)
@@ -34,6 +35,7 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - Reads tags off Royal Road, ScribbleHub and NovelFire novel pages and files them with their source
 - Learns NovelUpdates tag names from the series pages you visit, so the app can suggest tags and match their spelling
 - Turns a NovelUpdates search into a pick-list and captures the series you choose
+- Reads the site's own latest chapter and chapter count off pages you are already on — a chapter menu, the last chapter of a series, or a table of contents — and reports nothing at all when a page doesn't say
 - Works generically across most reading sites with site-specific support for Royal Road, ScribbleHub, NovelFire and NovelUpdates
 
 ## Installation
@@ -55,4 +57,5 @@ The desktop app must be running (in tray is fine) for the extension to communica
 - Database location: `%APPDATA%\com.aweso.noveltrackr\noveltrackr.db`
 - Backups: `%APPDATA%\com.aweso.noveltrackr\backups\` — the last 7 daily snapshots, plus the 5 most recent copies taken before a restore. Any of them can be restored with `Restore Backup` on the stats page, or opened directly with a SQLite viewer.
 - NovelUpdates sits behind Cloudflare, so the extension only ever fills its search box and lets you run the search — no request is made that you didn't make
+- The latest chapter the app knows about is whatever the extension last saw on a page you visited. It is never fetched in the background, and a novel nobody has browsed shows no badge rather than "0 new" — the stats say how many novels they actually have data for
 - This is a personal tool — no accounts, no cloud sync, no telemetry

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getTagVocabulary } from "./queries";
 import { getNovelHistory, type HistoryEntry, type NovelHistory } from "./stats";
+import { isStale, latestSummary } from "./latest";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   type Status,
@@ -34,6 +35,11 @@ export interface EditNovelData {
   tags: string[];
   rating: number | null;
   drop_reason: string;
+  latest_chapter: number | null;
+  latest_chapter_confidence: string | null;
+  latest_chapter_seen_at: number | null;
+  total_chapters: number | null;
+  total_chapters_seen_at: number | null;
   updated_at: string;
   last_seen_url: string;
 }
@@ -367,6 +373,20 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               onChange={(v) => set("current_chapter_raw", v)}
               placeholder="e.g. Chapter 221, Vol 2 Ch 4"
             />
+            {/* What the extension last saw of the site's own count, and when —
+                read-only, and silent when no page has been seen */}
+            {latestSummary(form.latest_chapter, form.latest_chapter_confidence, form.latest_chapter_seen_at) && (
+              <div
+                style={{
+                  fontSize: 10,
+                  marginTop: 5,
+                  paddingLeft: 1,
+                  color: isStale(form.latest_chapter_seen_at) ? "#3a3a45" : "#6a6a76",
+                }}
+              >
+                {latestSummary(form.latest_chapter, form.latest_chapter_confidence, form.latest_chapter_seen_at)}
+              </div>
+            )}
           </div>
 
           {/* Aliases */}

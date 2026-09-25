@@ -52,6 +52,11 @@ pub struct UpdateProgressPayload {
     pub chapter_raw: String,
     pub source_url: String,
     pub domain: String,
+    // Optional so an extension unpacked before this build keeps working: a
+    // payload that omits them simply carries no observation.
+    pub latest_chapter: Option<f64>,
+    pub latest_chapter_confidence: Option<String>,
+    pub total_chapters: Option<f64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -76,6 +81,10 @@ pub struct MetadataPayload {
     pub author: Option<String>,
     pub tags: Option<Vec<String>>,
     pub source: Option<String>,
+    // The same page often shows how far the site has got — see merge_latest
+    pub latest_chapter: Option<f64>,
+    pub latest_chapter_confidence: Option<String>,
+    pub total_chapters: Option<f64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -161,6 +170,158 @@ fn json_response(body: String, status: u16) -> Response<std::io::Cursor<Vec<u8>>
         None,
     );
     response
+}
+
+/// How much a reported latest chapter is worth. Ordered by trust, weakest first:
+/// `LowerBound` can only ever raise a number, `CaughtUp` confirms one, `Exact`
+/// may also correct it downwards (a table of contents can renumber).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Confidence {
+    LowerBound,
+    CaughtUp,
+    Exact,
+}
+
+impl Confidence {
+    /// Anything unrecognised is treated as the weakest kind, never as strong
+    fn parse(value: Option<&str>) -> Option<Self> {
+        match value.map(str::trim) {
+            Some("exact") => Some(Self::Exact),
+            Some("caught_up") => Some(Self::CaughtUp),
+            Some("lower_bound") => Some(Self::LowerBound),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Exact => "exact",
+            Self::CaughtUp => "caught_up",
+            Self::LowerBound => "lower_bound",
+        }
+    }
+}
+
+/// Merges what a page showed into the novel's row, and returns whether the number
+/// moved.
+///
+/// The number is a moving target we only ever glimpse: sites run ahead of the
+/// reader, a table of contents can be paginated, and a page with no evidence tells
+/// us nothing at all. So:
+///   * a higher number always wins;
+///   * an `exact` read may correct a weaker one downwards — pages get renumbered;
+///   * `caught_up` fills a gap or confirms, but never lowers an exact value,
+///     because "there was no next link" is an inference rather than a measurement;
+///   * `lower_bound` only ever raises.
+///
+/// `seen_at` moves when the observation confirms or raises the stored value, and
+/// stays put otherwise — a number we failed to confirm keeps looking as old as it
+/// is rather than being made to look fresh.
+fn merge_latest(
+    conn: &rusqlite::Connection,
+    novel_id: i64,
+    latest: Option<f64>,
+    confidence: Option<&str>,
+    total: Option<f64>,
+) -> Result<bool, String> {
+    // No observation on this page: leave the row alone, timestamps included
+    if latest.is_none() && total.is_none() {
+        return Ok(false);
+    }
+
+    let stored = conn
+        .query_row(
+            "SELECT latest_chapter, latest_chapter_confidence, latest_chapter_seen_at,
+                    total_chapters, total_chapters_seen_at
+               FROM novels
+              WHERE id = ?1",
+            rusqlite::params![novel_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<f64>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<f64>>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    let Some((stored_latest, stored_confidence, stored_seen, stored_total, stored_total_seen)) =
+        stored
+    else {
+        return Err(format!("no novel with id {novel_id}"));
+    };
+
+    let now: i64 = conn
+        .query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    let incoming = Confidence::parse(confidence).unwrap_or(Confidence::LowerBound);
+    let stored_rank = Confidence::parse(stored_confidence.as_deref())
+        .unwrap_or(Confidence::LowerBound);
+
+    let (mut next_latest, mut next_confidence, mut next_seen) =
+        (stored_latest, stored_confidence.clone(), stored_seen);
+    let mut moved = false;
+
+    if let Some(observed) = latest.filter(|n| n.is_finite() && *n >= 0.0) {
+        let write = match stored_latest {
+            None => true,
+            Some(previous) if observed > previous => true,
+            Some(previous) if observed == previous => false,
+            Some(_) => incoming == Confidence::Exact && stored_rank < Confidence::Exact,
+        };
+
+        if write {
+            next_latest = Some(observed);
+            next_confidence = Some(incoming.as_str().to_string());
+            next_seen = Some(now);
+            moved = true;
+        } else if stored_latest.map(|previous| observed >= previous).unwrap_or(false) {
+            // Same number, seen again: it stands, but it is current again
+            next_seen = Some(now);
+        }
+    }
+
+    // A count only ever arrives from a real table of contents, and it can only
+    // grow: a shorter list is a paginated ToC, not a novel that lost chapters.
+    let (mut next_total, mut next_total_seen) = (stored_total, stored_total_seen);
+    if let Some(observed) = total.filter(|n| n.is_finite() && *n >= 0.0) {
+        if stored_total.map(|previous| observed >= previous).unwrap_or(true) {
+            next_total = Some(observed);
+            next_total_seen = Some(now);
+        }
+    }
+
+    if next_latest == stored_latest
+        && next_confidence == stored_confidence
+        && next_seen == stored_seen
+        && next_total == stored_total
+        && next_total_seen == stored_total_seen
+    {
+        return Ok(false);
+    }
+
+    conn.execute(
+        "UPDATE novels
+            SET latest_chapter = ?2, latest_chapter_confidence = ?3,
+                latest_chapter_seen_at = ?4, total_chapters = ?5, total_chapters_seen_at = ?6
+          WHERE id = ?1",
+        rusqlite::params![
+            novel_id,
+            next_latest,
+            next_confidence,
+            next_seen,
+            next_total,
+            next_total_seen
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(moved)
 }
 
 /// Saves the cover a page offered. The author comes from the same page, so it
@@ -260,6 +421,16 @@ fn save_metadata(db_path: &str, payload: &MetadataPayload) -> Result<(), String>
             ).map_err(|e| e.to_string())?;
         }
     }
+
+    // The page that carried the author and tags often also showed how far the
+    // site has got, so one visit can refresh both
+    merge_latest(
+        &conn,
+        payload.novel_id,
+        payload.latest_chapter,
+        payload.latest_chapter_confidence.as_deref(),
+        payload.total_chapters,
+    )?;
 
     Ok(())
 }
@@ -546,6 +717,15 @@ fn update_progress_and_source(db_path: &str, payload: &UpdateProgressPayload) ->
         log_progress(&conn, payload.novel_id, chapter_sort)?;
     }
 
+    // The same page may have shown the site's own latest chapter (see merge_latest)
+    merge_latest(
+        &conn,
+        payload.novel_id,
+        payload.latest_chapter,
+        payload.latest_chapter_confidence.as_deref(),
+        payload.total_chapters,
+    )?;
+
     // Only one preferred source per novel — the UI reads with LIMIT 1
     conn.execute(
         "UPDATE sources SET is_preferred = 0 WHERE novel_id = ?1",
@@ -734,6 +914,9 @@ fn quick_add_novel(db_path: &str, payload: &QuickAddPayload) -> Result<QuickAddR
             author: payload.author.clone(),
             tags: payload.tags.clone(),
             source: payload.source.clone(),
+            latest_chapter: None,
+            latest_chapter_confidence: None,
+            total_chapters: None,
         })?;
     }
 
@@ -745,12 +928,13 @@ mod tests {
     use super::*;
 
     /// The migration files in the order sqlx applies them
-    const MIGRATIONS: [&str; 5] = [
+    const MIGRATIONS: [&str; 6] = [
         include_str!("../migrations/001_init.sql"),
         include_str!("../migrations/002_sources_unique.sql"),
         include_str!("../migrations/003_aliases_index.sql"),
         include_str!("../migrations/004_metadata_reading_log.sql"),
         include_str!("../migrations/005_rating_and_drop_reason.sql"),
+        include_str!("../migrations/006_latest_chapter.sql"),
     ];
 
     /// Apply migrations `[..upto)` to a fresh file — a real install applies them
@@ -762,10 +946,23 @@ mod tests {
         }
     }
 
-    /// A runnable check's throwaway database, cleared from any earlier run
+    /// Apply just `[from..upto)` — what an install does when it upgrades: the
+    /// earlier files are not re-run, because ALTER TABLE is not idempotent
+    fn upgrade(path: &std::path::Path, from: usize, upto: usize) {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        for sql in &MIGRATIONS[from..upto] {
+            conn.execute_batch(sql).unwrap();
+        }
+    }
+
+    /// A runnable check's throwaway database, cleared from any earlier run —
+    /// including the WAL SQLite leaves beside it, which would otherwise replay the
+    /// old schema into the fresh file
     fn temp_db(name: &str) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("nt-{}-{}.db", name, std::process::id()));
-        let _ = std::fs::remove_file(&path);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
         path
     }
 
@@ -841,7 +1038,15 @@ mod tests {
         let save = |id: i64, author: &str| {
             save_metadata(
                 path.to_str().unwrap(),
-                &MetadataPayload { novel_id: id, author: Some(author.to_string()), tags: None, source: None },
+                &MetadataPayload {
+                    novel_id: id,
+                    author: Some(author.to_string()),
+                    tags: None,
+                    source: None,
+                    latest_chapter: None,
+                    latest_chapter_confidence: None,
+                    total_chapters: None,
+                },
             ).unwrap();
         };
 
@@ -893,6 +1098,9 @@ mod tests {
                     author: None,
                     tags: Some(tags),
                     source: Some(source.to_string()),
+                    latest_chapter: None,
+                    latest_chapter_confidence: None,
+                    total_chapters: None,
                 },
             )
         };
@@ -1047,6 +1255,9 @@ mod tests {
                     "Cultivation".to_string(), // not in the vocabulary — kept as-is
                 ]),
                 source: Some("royalroad".to_string()),
+                latest_chapter: None,
+                latest_chapter_confidence: None,
+                total_chapters: None,
             },
         ).unwrap();
 
@@ -1079,6 +1290,9 @@ mod tests {
             chapter_raw: chapter.to_string(),
             source_url: "https://www.royalroad.com/fiction/1/shadow-slave/chapter/2".to_string(),
             domain: "royalroad.com".to_string(),
+            latest_chapter: None,
+            latest_chapter_confidence: None,
+            total_chapters: None,
         };
 
         update_progress_and_source(path.to_str().unwrap(), &payload("Chapter 221")).unwrap();
@@ -1252,5 +1466,364 @@ mod tests {
         assert_eq!(parse_chapter_sort("Episode 4"), Some(4.0));
         assert_eq!(parse_chapter_sort("12.5"), Some(12.5));
         assert_eq!(parse_chapter_sort("Vol 2 Ch 4"), None);
+    }
+
+    // ── Latest chapter merge ─────────────────────────────────────────────────
+
+    /// (latest, confidence, seen_at, total, total_seen_at)
+    type LatestRow = (Option<f64>, Option<String>, Option<i64>, Option<f64>, Option<i64>);
+
+    /// One novel, with whatever the test wants the columns to already hold
+    fn novel_db(name: &str, preset: &str) -> std::path::PathBuf {
+        let path = temp_db(name);
+        migrate(&path, MIGRATIONS.len());
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute(
+            "INSERT INTO novels (id, canonical_title, status) VALUES (1, 'Shadow Slave', 'reading')",
+            [],
+        )
+        .unwrap();
+
+        if !preset.is_empty() {
+            conn.execute(&format!("UPDATE novels SET {preset} WHERE id = 1"), []).unwrap();
+        }
+
+        path
+    }
+
+    fn latest_row(path: &std::path::Path) -> LatestRow {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.query_row(
+            "SELECT latest_chapter, latest_chapter_confidence, latest_chapter_seen_at,
+                    total_chapters, total_chapters_seen_at
+               FROM novels
+              WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .unwrap()
+    }
+
+    fn now_secs(conn: &rusqlite::Connection) -> i64 {
+        conn.query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_higher_latest_chapter_always_wins() {
+        let path = novel_db(
+            "latest-higher",
+            "latest_chapter = 400, latest_chapter_confidence = 'exact', \
+             latest_chapter_seen_at = strftime('%s','now') - 86400",
+        );
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        // Even a weak read raises a number it proves is out of date
+        assert!(merge_latest(&conn, 1, Some(420.0), Some("lower_bound"), None).unwrap());
+
+        let (latest, confidence, seen, _, _) = latest_row(&path);
+        assert_eq!(latest, Some(420.0));
+        assert_eq!(confidence.as_deref(), Some("lower_bound"));
+        assert!(now_secs(&conn) - seen.unwrap() < 60, "a fresh number is fresh");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_weaker_read_never_lowers_the_number() {
+        let path = novel_db(
+            "latest-weaker",
+            "latest_chapter = 420, latest_chapter_confidence = 'exact', \
+             latest_chapter_seen_at = strftime('%s','now') - 86400",
+        );
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        assert!(!merge_latest(&conn, 1, Some(400.0), Some("lower_bound"), None).unwrap());
+
+        let (latest, confidence, _, _, _) = latest_row(&path);
+        assert_eq!(latest, Some(420.0), "a paginated list must not shrink the site");
+        assert_eq!(confidence.as_deref(), Some("exact"), "and must not weaken the evidence");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn caught_up_fills_a_gap_but_never_lowers_an_exact_read() {
+        // A gap: nothing known yet, and the reader is on the newest chapter
+        let path = novel_db("latest-caught-up", "");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        assert!(merge_latest(&conn, 1, Some(412.0), Some("caught_up"), None).unwrap());
+        let (latest, confidence, _, _, _) = latest_row(&path);
+        assert_eq!((latest, confidence.as_deref()), (Some(412.0), Some("caught_up")));
+
+        let _ = std::fs::remove_file(&path);
+
+        // A number read off a ToC outranks an inference, so "there was no next
+        // link" cannot talk it down
+        let path = novel_db(
+            "latest-caught-up-exact",
+            "latest_chapter = 500, latest_chapter_confidence = 'exact', \
+             latest_chapter_seen_at = strftime('%s','now')",
+        );
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        assert!(!merge_latest(&conn, 1, Some(496.0), Some("caught_up"), None).unwrap());
+        assert_eq!(latest_row(&path).0, Some(500.0));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_exact_read_may_correct_a_weaker_number_downwards() {
+        let path = novel_db(
+            "latest-correct",
+            "latest_chapter = 900, latest_chapter_confidence = 'lower_bound', \
+             latest_chapter_seen_at = strftime('%s','now') - 86400",
+        );
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        // A paginated ToC once reported 900; the real list says 850
+        assert!(merge_latest(&conn, 1, Some(850.0), Some("exact"), None).unwrap());
+
+        let (latest, confidence, _, _, _) = latest_row(&path);
+        assert_eq!((latest, confidence.as_deref()), (Some(850.0), Some("exact")));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A number nobody could confirm has to keep looking old, or the library would
+    /// call stale data fresh
+    #[test]
+    fn an_unconfirmed_read_leaves_the_stamp_alone() {
+        let path = novel_db(
+            "latest-stamp",
+            "latest_chapter = 400, latest_chapter_confidence = 'exact', \
+             latest_chapter_seen_at = strftime('%s','now') - 40 * 86400",
+        );
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        // A weaker read that came up short is not a confirmation
+        assert!(!merge_latest(&conn, 1, Some(380.0), Some("lower_bound"), None).unwrap());
+        let (latest, _, seen, _, _) = latest_row(&path);
+        assert_eq!(latest, Some(400.0));
+        assert!(
+            now_secs(&conn) - seen.unwrap() >= 40 * 86_400,
+            "the value keeps ageing when nobody confirms it"
+        );
+
+        // Seeing the same number again does confirm it
+        assert!(!merge_latest(&conn, 1, Some(400.0), Some("caught_up"), None).unwrap());
+        let (_, confidence, seen, _, _) = latest_row(&path);
+        assert_eq!(
+            confidence.as_deref(),
+            Some("exact"),
+            "confirming a number does not rewrite what the evidence was"
+        );
+        assert!(now_secs(&conn) - seen.unwrap() < 60, "a confirmed value is current again");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn total_chapters_only_ever_grows() {
+        let path = novel_db("latest-total", "");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        assert!(merge_latest(&conn, 1, Some(50.0), Some("exact"), Some(50.0)).unwrap());
+        assert_eq!(latest_row(&path).3, Some(50.0));
+
+        // A paginated ToC later: it lists fewer chapters than the novel has
+        merge_latest(&conn, 1, None, None, Some(30.0)).unwrap();
+        assert_eq!(latest_row(&path).3, Some(50.0), "a short list is not a smaller novel");
+
+        merge_latest(&conn, 1, None, None, Some(60.0)).unwrap();
+        assert_eq!(latest_row(&path).3, Some(60.0));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_unrecognised_confidence_is_the_weakest_kind() {
+        let path = novel_db(
+            "latest-junk",
+            "latest_chapter = 600, latest_chapter_confidence = 'exact', \
+             latest_chapter_seen_at = strftime('%s','now')",
+        );
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        // A payload inventing its own confidence gets no authority
+        assert!(!merge_latest(&conn, 1, Some(500.0), Some("definitely true"), None).unwrap());
+        assert_eq!(latest_row(&path).0, Some(600.0));
+
+        let _ = std::fs::remove_file(&path);
+
+        let path = novel_db("latest-junk-gap", "");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        merge_latest(&conn, 1, Some(500.0), Some("definitely true"), None).unwrap();
+        let (latest, confidence, _, _, _) = latest_row(&path);
+        assert_eq!(
+            (latest, confidence.as_deref()),
+            (Some(500.0), Some("lower_bound")),
+            "stored as weak evidence rather than trusted"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_page_with_nothing_to_say_touches_nothing() {
+        let path = novel_db(
+            "latest-empty",
+            "latest_chapter = 400, latest_chapter_confidence = 'exact', \
+             latest_chapter_seen_at = strftime('%s','now') - 40 * 86400",
+        );
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let before = latest_row(&path);
+
+        // An older extension's payload, or a page with no evidence at all
+        assert!(!merge_latest(&conn, 1, None, None, None).unwrap());
+
+        assert_eq!(latest_row(&path), before, "nothing observed, nothing changed");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Both routes carry the observation, and an older extension simply omits it
+    #[test]
+    fn the_extension_routes_carry_the_latest_chapter() {
+        let path = novel_db("latest-routes", "");
+        conn_exec(
+            &path,
+            "INSERT INTO progress (novel_id, chapter_raw, chapter_sort) VALUES (1, 'Chapter 100', 100)",
+        );
+
+        update_progress_and_source(
+            path.to_str().unwrap(),
+            &UpdateProgressPayload {
+                novel_id: 1,
+                chapter_raw: "Chapter 105".to_string(),
+                source_url: "https://example.com/chapter-105".to_string(),
+                domain: "example.com".to_string(),
+                latest_chapter: Some(160.0),
+                latest_chapter_confidence: Some("exact".to_string()),
+                total_chapters: Some(160.0),
+            },
+        )
+        .unwrap();
+
+        let (latest, confidence, seen, total, total_seen) = latest_row(&path);
+        assert_eq!(
+            (latest, confidence.as_deref(), total),
+            (Some(160.0), Some("exact"), Some(160.0)),
+            "one write carries both the reader's chapter and the site's"
+        );
+        assert!(seen.is_some() && total_seen.is_some(), "and stamps both observations");
+
+        // The metadata route carries the same three fields
+        save_metadata(
+            path.to_str().unwrap(),
+            &MetadataPayload {
+                novel_id: 1,
+                author: None,
+                tags: None,
+                source: None,
+                latest_chapter: Some(161.0),
+                latest_chapter_confidence: Some("caught_up".to_string()),
+                total_chapters: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(latest_row(&path).0, Some(161.0));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A payload in the shape an older unpacked extension sends must still work
+    #[test]
+    fn an_older_extension_payload_still_works() {
+        let path = novel_db("latest-backcompat", "");
+
+        update_progress_and_source(
+            path.to_str().unwrap(),
+            &UpdateProgressPayload {
+                novel_id: 1,
+                chapter_raw: "Chapter 105".to_string(),
+                source_url: "https://example.com/chapter-105".to_string(),
+                domain: "example.com".to_string(),
+                latest_chapter: None,
+                latest_chapter_confidence: None,
+                total_chapters: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(latest_row(&path).0, None, "an omitted observation fills nothing in");
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let chapter: String = conn
+            .query_row("SELECT chapter_raw FROM progress WHERE novel_id = 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(chapter, "Chapter 105");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn conn_exec(path: &std::path::Path, sql: &str) {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute(sql, []).unwrap();
+    }
+
+    fn count_rows(path: &std::path::Path, sql: &str) -> i64 {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.query_row(sql, [], |row| row.get(0)).unwrap()
+    }
+
+    /// The upgrade path a real install takes: a library already at migration 5
+    /// keeps every row and id when 006 adds its columns
+    #[test]
+    fn migration_006_upgrades_an_existing_library() {
+        let path = temp_db("upgrade-006");
+        migrate(&path, 5);
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO novels (canonical_title, status, rating) VALUES ('Existing', 'reading', 4)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO progress (novel_id, chapter_raw, chapter_sort) VALUES (1, 'Chapter 40', 40)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO reading_log (novel_id, action, chapter, timestamp) VALUES (1, 'started', 1, 1700000000)",
+                [],
+            ).unwrap();
+        }
+
+        // The upgrade an existing install goes through: 006 only, nothing re-run
+        upgrade(&path, 5, MIGRATIONS.len());
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let (title, rating, latest): (String, Option<i64>, Option<f64>) = conn
+            .query_row(
+                "SELECT canonical_title, rating, latest_chapter FROM novels WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            (title.as_str(), rating, latest),
+            ("Existing", Some(4), None),
+            "the library survives the upgrade and the new column starts empty"
+        );
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM progress"), 1);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM reading_log"), 1);
+
+        let _ = std::fs::remove_file(&path);
     }
 }

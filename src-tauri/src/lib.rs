@@ -70,6 +70,12 @@ pub fn run() {
             sql: include_str!("../migrations/005_rating_and_drop_reason.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "latest chapter observed from pages",
+            sql: include_str!("../migrations/006_latest_chapter.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     // Never panic at startup — fall back to the temp dir if the platform won't tell us

@@ -16,6 +16,10 @@ const stats = read("StatsPanel.tsx");
 const add = read("AddNovelPanel.tsx");
 const edit = read("EditNovelPanel.tsx");
 const css = read("App.css");
+const latest = read("latest.ts");
+const content = read("../extension/content.js");
+const background = read("../extension/background.js");
+const popup = read("../extension/popup.js");
 const html = readFileSync(path.join(dir, "..", "index.html"), "utf8");
 
 const checks = [];
@@ -43,6 +47,36 @@ check("the stats read the sources and backlog that are already recorded", () => 
   assert.match(stats, /<PaceRows rows=\{stats\.fastest_finishes\} showRate/, "no fastest-finish table");
   assert.match(stats, /backlog\.oldest_title/, "the oldest plan is never named");
   assert.match(stats, /Histogram buckets=\{stats\.backlog\.buckets\}/, "the backlog age isn't charted");
+});
+
+check("an unknown latest chapter is never shown as zero", () => {
+  assert.match(app, /unreadChapters\(novel\.latest_chapter, novel\.chapter_sort\)/, "the badge ignores the shared rule");
+  assert.match(app, /if \(unread === null \|\| unread === 0\) return null/, "the badge shows something when nothing is known");
+  assert.match(app, /progressPercent\(novel\.chapter_sort, novel\.total_chapters\)/, "no per-novel progress bar");
+  assert.match(stats, /stats\.unread\.known > 0/, "the headline doesn't check its own coverage");
+  assert.match(stats, /have known data/, "the headline doesn't say how much it knows about");
+});
+
+check("the 30-day staleness rule lives in one place", () => {
+  assert.match(latest, /export const STALE_AFTER_DAYS = 30/, "the threshold moved or changed");
+  for (const [name, file] of [["App.tsx", app], ["EditNovelPanel.tsx", edit]]) {
+    assert.match(file, /from "\.\/latest"/, `${name} doesn't use the shared rule`);
+  }
+  assert.ok(!/86_400|86400/.test(app + edit + stats), "a second copy of the staleness maths appeared");
+});
+
+check("the extension reports a latest chapter only when a page showed one", () => {
+  for (const kind of ["exact", "caught_up", "lower_bound"]) {
+    assert.ok(content.includes(`"${kind}"`), `no ${kind} read is ever reported`);
+  }
+  assert.match(content, /const latest = detectLatestChapters\(/, "nothing asks the page");
+  assert.match(
+    background,
+    /if \(!latest \|\| typeof latest\.latest_chapter !== "number"\) return \{\}/,
+    "a page with no evidence would still send fields",
+  );
+  assert.match(background, /\.\.\.latestFields\(latest\)/, "the observation never reaches the routes");
+  assert.match(popup, /latest: detection\.latest/, "the popup drops what the page reported");
 });
 
 check("rating and drop reason are labelled pickers", () => {
