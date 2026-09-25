@@ -30,7 +30,7 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - One-click progress update from the extension popup
 - Prompts to add unrecognised novels directly to your library
 - Remembers confirmed title-to-novel mappings so future visits are automatic
-- Detects cover images on novel index pages and offers to save them
+- Detects cover images on novel index pages and offers to save them, and ignores a site's own "no cover" placeholder image rather than saving it
 - Reads the author off a novel page and fills it in for novels already in your library
 - Reads tags off Royal Road, ScribbleHub and NovelFire novel pages and files them with their source
 - Learns NovelUpdates tag names from the series pages you visit, so the app can suggest tags and match their spelling
@@ -60,5 +60,6 @@ The desktop app must be running (in tray is fine) for the extension to communica
 - NovelUpdates sits behind Cloudflare, so the extension only ever fills its search box and lets you run the search — no request is made that you didn't make
 - The latest chapter the app knows about is whatever the extension last saw on a page you visited. It is never fetched in the background, and a novel nobody has browsed shows no badge rather than "0 new" — the stats say how many novels they actually have data for
 - These numbers only ever go up: a page can add information, but it can never lower your progress, lower a chapter total, or replace a count read off a table of contents with a weaker one
+- The library shows the end of the novel next to your chapter: `/ 492` with a progress bar when a real total is known, and `/ ≥273` when all the site has given is a floor — a bar is never drawn from a guess
 - The extension's silent page-to-app writes log to its service worker console (`chrome://extensions` → Noveltrackr → *service worker*), which is where to look when a page seems to have reported nothing
 - This is a personal tool — no accounts, no cloud sync, no telemetry

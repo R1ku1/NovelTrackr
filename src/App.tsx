@@ -5,7 +5,7 @@ import StatsPanel from "./StatsPanel";
 import { getAllNovels, addNovel, updateNovel, updateProgress, deleteNovel } from "./queries";
 import { exportToFile, importFromFile } from "./queries";
 import { CoverImage } from "./formComponents";
-import { isStale, progressPercent, seenDate, unreadChapters } from "./latest";
+import { isStale, latestSuffix, latestSummary, progressPercent, seenDate, unreadChapters } from "./latest";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -442,6 +442,12 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#3f78b5",
     borderRadius: 2,
   },
+  // The "/ 492" or "/ ≥273" tail of the chapter line — quieter than the chapter itself
+  chapterOf: {
+    marginLeft: 6,
+    opacity: 0.75,
+    fontVariantNumeric: "tabular-nums",
+  },
 
   chapterCell: {
     color: "#999",
@@ -751,21 +757,44 @@ function NewChaptersBadge({ novel }: { novel: Novel }) {
   );
 }
 
-// A bar only when a real chapter count is known: without one there is nothing
-// honest to draw
-function NovelProgress({ novel }: { novel: Novel }) {
+// What is known about the end of the novel, next to where the reader is.
+//
+// A bar needs a real total to be honest — the shape of a proportion is a claim. When
+// all the site gives is a floor (NovelUpdates' newest release, another group's
+// numbering), the number itself is the information: "/ ≥273", muted, with the
+// confidence and its age in the tooltip. Nothing known means nothing drawn.
+function ChapterProgress({ novel }: { novel: Novel }) {
   const percent = progressPercent(novel.chapter_sort, novel.total_chapters);
-  if (percent === null) return null;
+
+  if (percent !== null) {
+    return (
+      <>
+        <span style={styles.chapterOf}>/ {novel.total_chapters}</span>
+        <div
+          role="img"
+          style={styles.chapterBar}
+          title={`Chapter ${novel.chapter_sort} of ${novel.total_chapters}`}
+          aria-label={`${Math.round(percent * 100)}% through ${novel.canonical_title}`}
+        >
+          <div style={{ ...styles.chapterBarFill, width: `${percent * 100}%` }} />
+        </div>
+      </>
+    );
+  }
+
+  const suffix = latestSuffix(novel.latest_chapter, novel.latest_chapter_confidence);
+  if (suffix === null) return null;
+
+  const title = latestSummary(
+    novel.latest_chapter,
+    novel.latest_chapter_confidence,
+    novel.latest_chapter_seen_at
+  );
 
   return (
-    <div
-      role="img"
-      style={styles.chapterBar}
-      title={`Chapter ${novel.chapter_sort} of ${novel.total_chapters}`}
-      aria-label={`${Math.round(percent * 100)}% through ${novel.canonical_title}`}
-    >
-      <div style={{ ...styles.chapterBarFill, width: `${percent * 100}%` }} />
-    </div>
+    <span style={styles.chapterOf} title={title ?? undefined}>
+      / {suffix}
+    </span>
   );
 }
 
@@ -861,7 +890,7 @@ function ListRow({
       <td style={{ ...styles.td, ...styles.chapterCell }}>
         {novel.current_chapter_raw ?? <span style={{ color: "#333" }}>—</span>}
         <NewChaptersBadge novel={novel} />
-        <NovelProgress novel={novel} />
+        <ChapterProgress novel={novel} />
       </td>
       <td style={{ ...styles.td, ...styles.sourceCell }}>
         {novel.last_seen_url
@@ -918,10 +947,10 @@ function GridCard({
         <span style={{ color: "#666", fontSize: 12 }}>
           {novel.current_chapter_raw ?? "Not started"}
           <NewChaptersBadge novel={novel} />
+          <ChapterProgress novel={novel} />
         </span>
         <UpdateButton onClick={() => onQuickUpdate(novel)} />
       </div>
-      <NovelProgress novel={novel} />
     </div>
   );
 }

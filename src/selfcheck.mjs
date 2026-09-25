@@ -57,6 +57,17 @@ check("an unknown latest chapter is never shown as zero", () => {
   assert.match(stats, /have known data/, "the headline doesn't say how much it knows about");
 });
 
+check("a floor is never drawn as a proportion", () => {
+  assert.match(latest, /export function latestSuffix\(/, "no shared rule for the chapter tail");
+  assert.match(latest, /lower_bound" \? `\u2265/, "a floor would look exactly like a real total");
+  assert.match(
+    app,
+    /latestSuffix\(novel\.latest_chapter, novel\.latest_chapter_confidence\)/,
+    "the chapter cell ignores the floor rule"
+  );
+  assert.match(app, /if \(percent !== null\) \{/, "a bar must be drawn only with a real total");
+});
+
 check("the 30-day staleness rule lives in one place", () => {
   assert.match(latest, /export const STALE_AFTER_DAYS = 30/, "the threshold moved or changed");
   for (const [name, file] of [["App.tsx", app], ["EditNovelPanel.tsx", edit]]) {

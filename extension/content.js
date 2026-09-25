@@ -329,6 +329,14 @@ function isIndexPage() {
   return !chapterIndicators.some(p => url.includes(p));
 }
 
+// Sites answer "no cover" with a placeholder image, and saving one leaves a broken
+// cover in the library — so a placeholder is treated as no cover at all
+const PLACEHOLDER_COVER = /no-?image|noimagefound|placeholder|default[-_]?cover|missing/i;
+
+function isPlaceholderCover(url) {
+  return PLACEHOLDER_COVER.test(String(url || ""));
+}
+
 // Extract cover image from page
 function extractCoverImage() {
   const selectors = [
@@ -352,6 +360,10 @@ function extractCoverImage() {
   for (const selector of selectors) {
     const el = document.querySelector(selector);
     if (el?.src && el.src.startsWith("http")) {
+      if (isPlaceholderCover(el.src)) {
+        console.log("[Noveltrackr] ignoring a placeholder cover:", el.src);
+        continue;
+      }
       console.log("[Noveltrackr] cover found via selector:", selector, el.src);
       return el.src;
     }
@@ -373,6 +385,7 @@ function extractCoverImage() {
     const style = el.getAttribute("style") || window.getComputedStyle(el).backgroundImage;
     const match = style.match(/url\(['"]?(https?[^'")\s]+)['"]?\)/);
     if (match) {
+      if (isPlaceholderCover(match[1])) continue;
       console.log("[Noveltrackr] cover found via background-image:", selector, match[1]);
       return match[1];
     }
@@ -381,6 +394,7 @@ function extractCoverImage() {
   // ── Largest portrait img fallback ─────────────────────────────────────────
   const images = Array.from(document.querySelectorAll("img"))
     .filter(img => img.src && img.src.startsWith("http"))
+    .filter(img => !isPlaceholderCover(img.src))
     .filter(img => img.complete && img.naturalWidth > 80 && img.naturalHeight > 80)
     .filter(img => img.naturalHeight > img.naturalWidth)
     .sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
@@ -439,8 +453,8 @@ function scheduleCoverDetection(indexTitle, meta = {}) {
 const MAX_MENU_OPTIONS = 200;
 const MIN_TOC_FOR_TOTAL = 5;
 
-// "Chapter 41", "Ch. 41", "Episode 41", "41" — anything else is not a chapter
-function chapterNumber(text) {
+// "Chapter 41", "Ch. 41", "Episode 41" — a number the page spells out
+function spelledChapterNumber(text) {
   if (!text) return null;
 
   const trimmed = String(text).trim();
@@ -449,13 +463,22 @@ function chapterNumber(text) {
   // the text is not
   if (!trimmed || trimmed.length > 120) return null;
 
-  const match =
-    trimmed.match(/^(?:chapter|chap|ch|episode|ep)\.?\s*(\d+(?:\.\d+)?)/i) ??
-    trimmed.match(/^(\d+(?:\.\d+)?)$/);
+  const match = trimmed.match(/^(?:chapter|chap|ch|episode|ep)\.?\s*(\d+(?:\.\d+)?)/i);
   if (!match) return null;
 
   const value = parseFloat(match[1]);
   return Number.isFinite(value) ? value : null;
+}
+
+// A bare number counts too, but only where the surrounding context already says
+// "chapters" — a chapter menu's options read "41". It must never be used for a table
+// of contents, where a bare "3" is a page link until proven otherwise.
+function chapterNumber(text) {
+  const spelled = spelledChapterNumber(text);
+  if (spelled !== null) return spelled;
+
+  const bare = String(text || "").trim().match(/^(\d+(?:\.\d+)?)$/);
+  return bare ? parseFloat(bare[1]) : null;
 }
 
 const NEXT_TEXT = [/^next(\s+(chapter|ch|episode))?\b/i, /^next\s*[›»→]/i, /^[›»→]$/];
@@ -534,7 +557,8 @@ const CHAPTER_HREF = /\/(?:chapter|ch|episode)[-_/?#]|chapter=|[?&]ch=/i;
 
 function tocEntryNumber(text, href) {
   const trimmed = String(text || "").trim().slice(0, 120);
-  const spelled = chapterNumber(trimmed);
+  // A bare number is not enough here: page links read "3" too
+  const spelled = spelledChapterNumber(trimmed);
   if (spelled !== null) return spelled;
 
   const url = String(href || "");
@@ -814,10 +838,15 @@ function run() {
 
   // Report what the page shows. The app only accepts this for a novel it
   // already tracks, so no badge or prompt is involved (plan §4.1).
+  const onNu = onNovelUpdates();
+
   const author = extractAuthor();
   const { source, tags } = extractTags();
-  // An index page is the best evidence there is: it lists the chapters themselves
-  const latest = detectLatestChapters(null);
+  // An index page is the best evidence there is: it lists the chapters themselves.
+  // NovelUpdates is the exception — it is a database of other sites' releases, so its
+  // page furniture (review page links, release rows) is never read as a chapter list
+  // here; nuRelease() offers the release table separately.
+  const latest = onNu ? null : detectLatestChapters(null);
 
   const report = (observed) => {
     if (!author && tags.length === 0 && !observed) return;
@@ -827,8 +856,6 @@ function run() {
       payload: { title: indexTitle, author, tags, source, latest: observed },
     }).catch((e) => console.log("[Noveltrackr] metadata message failed:", e));
   };
-
-  const onNu = onNovelUpdates();
 
   if (latest) {
     console.log("[Noveltrackr] latest chapter on this page:", latest);

@@ -1692,4 +1692,219 @@ function makeDom() {
 }
 
 
+// ── 35. content.js: page numbers are not chapters ─────────────────────────────
+{
+  // Live report: NovelUpdates' own review-page links read "1", "2", "3", and the
+  // bare-number rule a chapter *menu* needs ("41") turned that furniture into a
+  // three-chapter table of contents — reported as an exact read. It also won the
+  // branch, so the release offer below never ran.
+  const furniture = [1, 2, 3].map((n) => ({
+    tagName: "A",
+    textContent: `${n}`,
+    className: "",
+    getAttribute: (name) =>
+      name === "href" ? `https://www.royalroad.com/fiction/9/shadow-slave/?page=${n}` : null,
+    hasAttribute: () => false,
+  }));
+
+  const load = (links, title) => {
+    const timers = [];
+    const chrome = makeChrome({});
+    const ctx = vm.createContext({
+      chrome,
+      document: {
+        title,
+        querySelector: () => null,
+        querySelectorAll: (sel) => (sel === "a" ? links : []),
+        addEventListener: () => {},
+      },
+      window: {
+        location: {
+          href: "https://www.royalroad.com/fiction/9/shadow-slave",
+          hostname: "www.royalroad.com",
+          pathname: "/fiction/9/shadow-slave",
+        },
+      },
+      setTimeout: (fn) => timers.push(fn) - 1,
+      clearTimeout: () => {},
+      console: silent,
+    });
+    vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+    // Everything the page queued, the cover look and the late rescans included
+    while (timers.length > 0) {
+      const fn = timers.shift();
+      if (fn) fn();
+    }
+    return chrome.calls.messages;
+  };
+
+  assert.equal(
+    load(furniture, "Shadow Slave | Royal Road").length,
+    0,
+    "three page links must not read as a chapter list",
+  );
+
+  // The other direction still has to work: Royal Road numbers the chapter in the URL,
+  // so a link whose text is only "4" is a chapter there
+  const realChapters = [
+    { n: 3, slug: "chapter/122/3-the-other" },
+    { n: 4, slug: "chapter/123/4-the-title" },
+  ].map(({ n, slug }) => ({
+    tagName: "A",
+    textContent: `${n}`,
+    className: "",
+    getAttribute: (name) => (name === "href" ? `/fiction/9/shadow-slave/${slug}` : null),
+    hasAttribute: () => false,
+  }));
+
+  const reported = load(realChapters, "Shadow Slave | Royal Road").find(
+    (m) => m.type === "METADATA_DETECTED",
+  );
+  assert.deepEqual(
+    { ...reported?.payload?.latest },
+    { latest_chapter: 4, confidence: "exact" },
+    "a link the URL marks as a chapter is still read, bare number or not",
+  );
+  console.log("\u2713 content.js only reads numbers the page links as chapters");
+}
+
+
+// ── 36. content.js: NovelUpdates' page furniture is never a chapter list ──────
+{
+  // The other half of the same report: on the failing page the release table was
+  // never even looked at, because the ToC branch had already returned a number.
+  const furniture = [
+    ...[1, 2, 3].map((n) => ({
+      tagName: "A",
+      textContent: `${n}`,
+      className: "",
+      getAttribute: (name) =>
+        name === "href" ? `//www.novelupdates.com/series/i-was-betrayed/?page=${n}&sort=date` : null,
+      hasAttribute: () => false,
+    })),
+    // Even a chapter-shaped link is furniture here: NU lists other sites' chapters
+    {
+      tagName: "A",
+      textContent: "2",
+      className: "",
+      getAttribute: (name) => (name === "href" ? "https://other-site.com/chapter/7/2-x" : null),
+      hasAttribute: () => false,
+    },
+  ];
+
+  const releases = [
+    { token: "c272", group: "Some Other Group" },
+    { token: "c273", group: "KJ Translations" },
+  ].map(({ token, group }) => ({
+    tagName: "A",
+    textContent: token,
+    className: "chp-release",
+    getAttribute: () => "//www.novelupdates.com/extnu/1/",
+    hasAttribute: () => false,
+    closest: (sel) =>
+      sel === "tr"
+        ? { querySelector: (s) => (s.includes("nth-child(2)") ? { textContent: group } : null) }
+        : null,
+  }));
+
+  const title =
+    "I Was Betrayed by a Childhood Friend I Liked and a Junior Who Loved Me, so I Became Distrustful of Women";
+  const slug =
+    "/series/i-was-betrayed-by-a-childhood-friend-i-liked-and-a-junior-who-loved-me-so-i-became-distrustful-of-women/";
+
+  const timers = [];
+  const chrome = makeChrome({});
+  const ctx = vm.createContext({
+    chrome,
+    document: {
+      title: `${title} - Novel Updates`,
+      querySelector: (sel) => (sel.includes("seriestitlenu") ? { textContent: title } : null),
+      querySelectorAll: (sel) => (sel === "a" ? furniture : sel === "a.chp-release" ? releases : []),
+      addEventListener: () => {},
+    },
+    window: {
+      location: {
+        href: `https://www.novelupdates.com${slug}`,
+        hostname: "www.novelupdates.com",
+        pathname: slug,
+      },
+    },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  assert.equal(
+    chrome.calls.messages.filter((m) => m.type === "METADATA_DETECTED").length,
+    0,
+    "NU's page furniture must never be written as a chapter count",
+  );
+
+  const offer = chrome.calls.messages.find((m) => m.type === "NU_RELEASE_DETECTED");
+  assert.ok(offer, "and the release table must still be offered");
+  assert.deepEqual(
+    { ...offer.payload },
+    {
+      title,
+      latest_chapter: 273,
+      confidence: "lower_bound",
+      token: "c273",
+      group: "KJ Translations",
+    },
+    "the newest release and its group, unchanged by the furniture around it",
+  );
+  console.log("\u2713 content.js reads NovelUpdates' release table, not its page furniture");
+}
+
+
+// ── 37. content.js: a placeholder image is never offered as a cover ───────────
+{
+  // NovelUpdates answers "no cover" with /img/noimagefound.jpg, and that URL is
+  // exactly what the popup offered to save — a broken cover in the library.
+  const placeholder = { src: "https://www.novelupdates.com/img/noimagefound.jpg" };
+  const logs = [];
+  const timers = [];
+  const chrome = makeChrome({});
+
+  const ctx = vm.createContext({
+    chrome,
+    document: {
+      title: "No Cover Novel - Novel Updates",
+      querySelector: (sel) => (sel.includes("serieseditimg") ? placeholder : null),
+      querySelectorAll: (sel) => (sel === "img" ? [placeholder] : []),
+      addEventListener: () => {},
+    },
+    window: {
+      location: {
+        href: "https://www.novelupdates.com/series/no-cover-novel/",
+        hostname: "www.novelupdates.com",
+        pathname: "/series/no-cover-novel/",
+      },
+    },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: { log: (...a) => logs.push(a.join(" ")), error: () => {}, warn: () => {} },
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  while (timers.length > 0) {
+    const fn = timers.shift();
+    if (fn) fn();
+  }
+
+  assert.equal(
+    chrome.calls.messages.filter((m) => m.type === "COVER_DETECTED").length,
+    0,
+    "a placeholder must not be offered as a cover",
+  );
+  assert.ok(
+    logs.some((line) => line.includes("placeholder")),
+    "and the console must say why the page's image was passed over",
+  );
+  console.log("\u2713 content.js ignores a site's \"no cover\" placeholder");
+}
+
+
 console.log("\nAll extension self-checks passed.");

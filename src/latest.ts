@@ -75,3 +75,11 @@ export function progressPercent(current: number | null, total: number | null): n
   if (current === null || total === null || total <= 0) return null;
   return Math.min(1, Math.max(0, current / total));
 }
+
+/// The chapter line's tail. "/ 492" reads as a real end; a floor has to say so, or
+/// it would look like the same kind of number — hence "/ ≥273". Null when the site
+/// has told us nothing.
+export function latestSuffix(latest: number | null, confidence: string | null): string | null {
+  if (latest === null) return null;
+  return confidence === "lower_bound" ? `≥${latest}` : `${latest}`;
+}
