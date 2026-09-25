@@ -65,6 +65,9 @@ const STATUS_META: Record<Status, { label: string; color: string }> = {
 type SortKey = "updated" | "title" | "chapter";
 type ViewMode = "list" | "grid" | "compact";
 
+/// How many tags the filter row offers — the rest are still searchable by tag
+const TAG_FILTER_CHIPS = 14;
+
 // ── Dynamic Style Helpers ────────────────────────────────────────────────────
 function getNavBtnStyle(active: boolean, hovered: boolean): React.CSSProperties {
   return {
@@ -94,6 +97,22 @@ function getViewBtnStyle(active: boolean): React.CSSProperties {
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 8,
+  };
+}
+
+// A tag in the filter row: on means every shown novel carries it
+function getTagFilterStyle(active: boolean): React.CSSProperties {
+  return {
+    background: active ? "#60a5fa15" : "transparent",
+    border: `1px solid ${active ? "#60a5fa55" : "#22222e"}`,
+    color: active ? "#60a5fa" : "#666",
+    borderRadius: 20,
+    padding: "3px 10px",
+    fontSize: 11,
+    fontFamily: "inherit",
+    letterSpacing: "0.04em",
+    cursor: "pointer",
+    transition: "background 0.15s, border-color 0.15s, color 0.15s",
   };
 }
 
@@ -300,6 +319,22 @@ const styles: Record<string, React.CSSProperties> = {
     fontVariantNumeric: "tabular-nums",
     borderBottom: "1px solid #1a1a22",
     flexShrink: 0,
+  },
+  filterBar: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap" as const,
+    gap: 6,
+    padding: "10px 28px",
+    borderBottom: "1px solid #1a1a22",
+    flexShrink: 0,
+  },
+  filterLabel: {
+    fontSize: 9,
+    letterSpacing: "0.14em",
+    textTransform: "uppercase" as const,
+    color: "#444",
+    marginRight: 2,
   },
   main: {
     padding: "20px 28px 96px",
@@ -837,6 +872,8 @@ export default function App() {
   
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
+  const [authorFilter, setAuthorFilter] = useState<string>("all");
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [quickUpdateTarget, setQuickUpdateTarget] = useState<Novel | null>(null);
@@ -846,14 +883,48 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
 
+  // The filters offer only what the library actually holds: tags by how many
+  // novels carry them, authors alphabetically
+  const tagChoices = (() => {
+    const counts = new Map<string, number>();
+    for (const n of novels) {
+      for (const tag of n.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, TAG_FILTER_CHIPS);
+  })();
+
+  const authorChoices = [...new Set(novels.map((n) => n.author).filter((a): a is string => !!a))]
+    .sort((a, b) => a.localeCompare(b));
+
+  function toggleTag(tag: string) {
+    setTagFilter((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]
+    );
+  }
+
+  function clearFilters() {
+    setTagFilter([]);
+    setAuthorFilter("all");
+  }
+
   const filtered = novels
     .filter((n) => {
       if (statusFilter !== "all" && n.status !== statusFilter) return false;
+      if (authorFilter !== "all" && (n.author ?? "") !== authorFilter) return false;
+      // Every chosen tag has to be on the novel, so stacking them narrows
+      if (tagFilter.some((tag) => !n.tags.includes(tag))) return false;
+
       const q = search.trim().toLowerCase();
       if (q) {
+        // Notes are where "where I left off" lives, so search has to reach them
         return (
           n.canonical_title.toLowerCase().includes(q) ||
-          n.aliases.some((a) => a.toLowerCase().includes(q))
+          n.aliases.some((a) => a.toLowerCase().includes(q)) ||
+          (n.author ?? "").toLowerCase().includes(q) ||
+          (n.notes ?? "").toLowerCase().includes(q)
         );
       }
       return true;
@@ -1043,8 +1114,8 @@ export default function App() {
               ...styles.searchInput,
               paddingRight: search ? 32 : 10,  // make room for clear btn
             }}
-            placeholder="Search titles, aliases…"
-            aria-label="Search novels by title or alias"
+            placeholder="Search titles, authors, notes…"
+            aria-label="Search novels by title, alias, author or notes"
             autoComplete="off"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -1071,6 +1142,19 @@ export default function App() {
             {(Object.keys(STATUS_META) as Status[]).map((s) => (
               <option key={s} value={s}>{STATUS_META[s].label}</option>
             ))}
+          </select>
+        </div>
+        <div style={styles.selectWrap}>
+          <label htmlFor="author-filter" style={styles.selectLabel}>Author</label>
+          <select
+            id="author-filter"
+            style={styles.select}
+            value={authorFilter}
+            disabled={authorChoices.length === 0}
+            onChange={(e) => setAuthorFilter(e.target.value)}
+          >
+            <option value="all">All Authors</option>
+            {authorChoices.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
         <div style={styles.selectWrap}>
@@ -1112,9 +1196,38 @@ export default function App() {
         </div>
       </div>}
 
+      {/* Tags are captured from four sites and analysed on the stats page — here
+          they're a way to find things again */}
+      {page === "library" && tagChoices.length > 0 && (
+        <div style={styles.filterBar}>
+          <span style={styles.filterLabel}>Tags</span>
+          {tagChoices.map((tag) => {
+            const active = tagFilter.includes(tag.name);
+            return (
+              <button
+                key={tag.name}
+                style={getTagFilterStyle(active)}
+                aria-pressed={active}
+                title={active ? `Stop filtering by ${tag.name}` : `Filter by ${tag.name}`}
+                onClick={() => toggleTag(tag.name)}
+              >
+                {tag.name} {tag.count}
+              </button>
+            );
+          })}
+          {(tagFilter.length > 0 || authorFilter !== "all") && (
+            <button style={getTagFilterStyle(false)} onClick={clearFilters}>
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
       {page === "library" && <div style={styles.countBar}>
         {filtered.length} {filtered.length === 1 ? "novel" : "novels"}
         {statusFilter !== "all" && ` · ${statusMeta(statusFilter).label}`}
+        {authorFilter !== "all" && ` · ${authorFilter}`}
+        {tagFilter.length > 0 && ` · ${tagFilter.join(" + ")}`}
         {search && ` · "${search}"`}
       </div>}
 
@@ -1132,7 +1245,7 @@ export default function App() {
             <div style={styles.emptyHint}>
               {novels.length === 0
                 ? "Add the first one with the + button in the corner, or open a site you read on and let the extension catch it."
-                : "Try a different search, or set the status filter back to All Status."}
+                : "Try a different search, or clear the tag and author filters above."}
             </div>
           </div>
         ) : viewMode === "list" ? (

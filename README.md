@@ -15,8 +15,8 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - Tags captured from the site you read on, or added by hand
 - Tag suggestions from NovelUpdates' tag list, and tags normalised to its spelling
 - "Find on NU" — search NovelUpdates for a novel, pick the right series, and its tags come back
-- Search across titles and aliases with instant clear
-- Filter by status, sort by last updated, title, or chapter number
+- Search across titles, aliases, authors and notes with instant clear
+- Filter by status, tag and author; sort by last updated, title, or chapter number
 - Reading log — every status change and chapter update is recorded locally and permanently, with each novel's own history and 30-day chapter total shown in its edit panel
 - Stats view — completion rate, reading pace, streaks, drop points, a year-long activity heatmap, plus tag-based insights
 - Export the full library to JSON, and restore it — one transaction, so a bad file changes nothing

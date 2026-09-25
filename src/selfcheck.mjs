@@ -85,11 +85,19 @@ check("icon-only buttons are named", () => {
 });
 
 check("selects are bound to real labels", () => {
-  for (const id of ["status-filter", "sort-key"]) {
+  for (const id of ["status-filter", "author-filter", "sort-key"]) {
     assert.match(app, new RegExp(`htmlFor="${id}"`), `no label points at #${id}`);
     assert.match(app, new RegExp(`id="${id}"`), `#${id} does not exist`);
   }
-  assert.match(app, /aria-label="Search novels by title or alias"/, "the search input has no name");
+  assert.match(app, /aria-label="Search novels by title, alias, author or notes"/, "the search input has no name");
+});
+
+check("tag filters toggle and can be cleared", () => {
+  assert.match(app, /aria-pressed=\{active\}/, "the tag filters don't expose their state");
+  assert.match(app, /Filter by \$\{tag\.name\}/, "the tag filters have no description");
+  assert.match(app, /Clear filters/, "a filtered library can't be reset");
+  // Notes hold \"where I left off\" — search has to reach them
+  assert.match(app, /n\.notes \?\? ""\)\.toLowerCase\(\)\.includes\(q\)/, "notes dropped out of search");
 });
 
 check("clickable rows and cards have a keyboard path", () => {
