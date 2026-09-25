@@ -83,13 +83,77 @@ function assertAuthed(calls, who) {
   assert.equal(unauthed.length, 0, `${who} sent ${unauthed.length} request(s) without the auth header`);
 }
 
-// Minimal DOM: getElementById returns sticky stubs so we can read what was rendered
+// Minimal DOM — but it models the two things that decide whether a button works:
+//
+//   * assigning innerHTML recreates the children, so a handler set on the previous
+//     element is gone (this is what shipped in 1.3.2: three cards appended one by one,
+//     each append killing the buttons above it — only the last one, Done, still worked);
+//   * an id that is not in the current markup cannot be found, and a card whose
+//     innerHTML was replaced no longer contains anything that was inside it.
+//
+// A stub that only stores strings cannot fail those ways, and then neither can the tests.
 function makeDom() {
   const nodes = new Map();
+  let html = "";
+  const rewritten = new Set(); // cards replaced since the last body render
+
+  // Ids that live in popup.html's own markup rather than in what the popup renders —
+  // these are present from the start and no render takes them away
+  const staticIds = new Set(["statusDot"]);
+
+  // The spans the card blocks occupy, in document order — cards are siblings, so each one
+  // ends where the next begins
+  const cardSpans = () => {
+    const starts = [...html.matchAll(/<div class="card" id="([^"]+)">/g)].map((m) => ({ id: m[1], at: m.index }));
+    return starts.map((start, i) => ({
+      ...start,
+      end: i + 1 < starts.length ? starts[i + 1].at : html.length,
+    }));
+  };
+
+  const reachable = (id) => {
+    // A card element survives its own innerHTML being replaced — only what was inside it
+    // is gone
+    if (new RegExp(`<div class="card" id="${id}">`).test(html)) return true;
+
+    const needle = `id="${id}"`;
+    for (let at = html.indexOf(needle); at >= 0; at = html.indexOf(needle, at + 1)) {
+      const holder = cardSpans().find((card) => at > card.at && at < card.end);
+      if (!holder || !rewritten.has(holder.id)) return true;
+    }
+    return false;
+  };
+
   const el = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { id, innerHTML: "", className: "", dataset: {}, onclick: null });
+    if (id === "body") return body;
+    if (!staticIds.has(id) && !reachable(id)) return null;
+
+    if (!nodes.has(id)) {
+      const node = { id, className: "", dataset: {}, onclick: null };
+      Object.defineProperty(node, "innerHTML", {
+        get: () => node._html || "",
+        set: (next) => {
+          node._html = next;
+          // Rewriting a card drops whatever was inside it
+          if (new RegExp(`<div class="card" id="${id}">`).test(html)) rewritten.add(id);
+        },
+      });
+      nodes.set(id, node);
+    }
     return nodes.get(id);
   };
+
+  const body = {
+    get innerHTML() {
+      return html;
+    },
+    set innerHTML(next) {
+      html = next;
+      rewritten.clear();
+      for (const node of nodes.values()) node.onclick = null; // the old elements are gone
+    },
+  };
+
   return { el, document: { getElementById: el, querySelectorAll: () => [] } };
 }
 
@@ -2020,6 +2084,107 @@ function makeDom() {
   assert.equal(typeof el("btnDone").onclick, "function", "with the same one way out");
   assert.ok(!/No chapter detected/.test(el("body").innerHTML), "and must not claim there was nothing");
   console.log("\u2713 popup.js still reports a page that only filed tags");
+}
+
+
+// ── 41. popup.js: a click answers immediately, and no card kills another's button ──
+{
+  // What 1.3.2 shipped: the body was built by appending, and every append recreated the
+  // children — so the handlers wired on the cards above were thrown away. "Save as Cover"
+  // and "Use this number" did nothing, and Done (wired last) was the only live button.
+  const saved = { novelTitle: "Shadow Slave", count: 61 };
+  const cover = {
+    type: "cover",
+    novelId: 5,
+    coverUrl: "https://cdn.novelupdates.com/images/cover.jpg",
+    replacesCover: true,
+    tabId: 7,
+  };
+  const release = {
+    title: "Shadow Slave",
+    latest_chapter: 273,
+    confidence: "lower_bound",
+    token: "c273",
+    group: "KJ Translations",
+  };
+
+  const chrome = makeChrome({}, { badge: "+", coverPending: cover, nuSaved: saved, nuRelease: release });
+
+  // The app's answers are held open so the state between click and reply can be read
+  const waiting = {};
+  chrome.runtime.sendMessage = (msg) => {
+    if (msg.type === "SAVE_COVER" || msg.type === "USE_NU_RELEASE") {
+      return new Promise((resolve) => { waiting[msg.type] = resolve; });
+    }
+    if (msg.type === "GET_COVER_PENDING") return Promise.resolve(cover);
+    if (msg.type === "GET_NU_SAVED") return Promise.resolve(saved);
+    if (msg.type === "GET_NU_RELEASE") return Promise.resolve(release);
+    if (msg.type === "GET_NU_PENDING") return Promise.resolve(null);
+    return Promise.resolve({ ok: true });
+  };
+
+  const { el, document } = makeDom();
+  let closed = false;
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { get closed() { return closed; }, close() { closed = true; } },
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => { fn(); return 0; },
+    Promise,
+  });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  for (const id of ["btnSaveCover", "btnUseNuRelease", "btnDone"]) {
+    assert.equal(typeof el(id).onclick, "function", `${id} has no handler — a later card replaced it`);
+  }
+
+  // The cover's click says so before the app has answered
+  const coverClick = el("btnSaveCover").onclick();
+  await tick();
+  assert.match(el("coverCard").innerHTML, /Saving cover/, "the click must show something at once");
+
+  waiting.SAVE_COVER({ ok: true });
+  await coverClick;
+  assert.match(el("coverCard").innerHTML, /Cover saved/, "then report what happened");
+  assert.equal(el("btnSaveCover"), null, "and the spent button is gone from the card");
+  assert.equal(closed, true, "and the popup gets out of the way");
+
+  // The number behaves the same way
+  const releaseClick = el("btnUseNuRelease").onclick();
+  await tick();
+  assert.match(el("releaseCard").innerHTML, /Recording c273/, "the click must show something at once");
+
+  waiting.USE_NU_RELEASE({ ok: true });
+  await releaseClick;
+  assert.match(el("releaseCard").innerHTML, /c273 recorded/, "then report what happened");
+  console.log("\u2713 popup.js answers a click at once, and no card kills another's button");
+}
+
+// ── 42. the test DOM fails the way a browser fails ────────────────────────────
+{
+  // Every popup check above leans on makeDom behaving like a browser here. Pin it, or the
+  // suite can pass on a page of dead buttons again.
+  const { el } = makeDom();
+  const body = el("body");
+
+  body.innerHTML = `<div class="card" id="cardA"><button id="btnA">a</button></div>`;
+  el("btnA").onclick = () => "a";
+  assert.equal(typeof el("btnA").onclick, "function", "a wired button must be live");
+
+  body.innerHTML += `<div class="card" id="cardB"><button id="btnB">b</button></div>`;
+  assert.equal(
+    el("btnA").onclick,
+    null,
+    "an append must destroy the element the handler was set on, like the real DOM does",
+  );
+
+  el("cardB").innerHTML = `<div class="success">done</div>`;
+  assert.equal(el("btnB"), null, "a rewritten card no longer holds what was inside it");
+  console.log("\u2713 the test DOM fails the way a browser fails");
 }
 
 

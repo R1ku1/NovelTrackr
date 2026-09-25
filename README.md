@@ -61,7 +61,7 @@ The desktop app must be running (in tray is fine) for the extension to communica
 - The latest chapter the app knows about is whatever the extension last saw on a page you visited. It is never fetched in the background, and a novel nobody has browsed shows no badge rather than "0 new" — the stats say how many novels they actually have data for
 - These numbers only ever go up: a page can add information, but it can never lower your progress, lower a chapter total, or replace a count read off a table of contents with a weaker one
 - The library shows the end of the novel next to your chapter: `/ 492` with a progress bar when a real total is known, and `/ ≥273` when all the site has given is a floor — a bar is never drawn from a guess
-- The popup stacks one card per offer — tags, cover, NovelUpdates' release — with a single *Done* below all of them, and it closes itself once you accept a number. A cover the library already has is not offered again, so a page that only has news uploads it says exactly that
+- The popup stacks one card per offer — tags, cover, NovelUpdates' release — with a single *Done* below all of them. Each click answers immediately ("Saving cover…", then "✓ Cover saved") and the popup closes once the app has confirmed; a cover the library already has is never offered again, so a page that only has news uploads says exactly that
 - A page's tags are filed silently, because the app fills empty fields only and never overwrites something you typed
 - The extension's silent page-to-app writes log to its service worker console (`chrome://extensions` → Noveltrackr → *service worker*), which is where to look when a page seems to have reported nothing
 - This is a personal tool — no accounts, no cloud sync, no telemetry
