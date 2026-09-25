@@ -3,6 +3,10 @@
 //! Every number comes from `reading_log` and the library rows. Nothing is
 //! estimated: what can't be known yet (chapter totals — see NG2) is left out
 //! rather than faked.
+//!
+//! Chapters are counted as the chapter numbers a log entry moved, not as log
+//! entries (see [`CHAPTER_ADVANCE`]) — one update that jumps 1 → 5 is four
+//! chapters of reading.
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -129,23 +133,48 @@ pub fn build_stats(db_path: &str) -> Result<Stats, String> {
 }
 
 
+/// Chapters gained by each `progressed` entry: how far the chapter moved since
+/// that novel's previous logged chapter, so a jump from 1 to 5 counts as four
+/// chapters rather than one entry. The whole gap lands on the later entry's day
+/// — that is the only day the log can prove. An entry with nothing before it
+/// counts as one (the log starts here, the chapters before it are unknowable),
+/// and a backwards correction clamps to zero rather than subtracting chapters
+/// that were already counted. Chapter numbers can be fractional (10.5), so a
+/// day's total is rounded to whole chapters — every stat built on it is a count.
+const CHAPTER_ADVANCE: &str = "
+  SELECT novel_id,
+         day,
+         MAX(0, chapter - COALESCE(prev, chapter - 1)) AS gained
+  FROM (
+    SELECT novel_id,
+           action,
+           chapter,
+           date(timestamp, 'unixepoch') AS day,
+           LAG(chapter) OVER (PARTITION BY novel_id ORDER BY timestamp, id) AS prev
+    FROM reading_log
+  )
+  WHERE action = 'progressed' AND chapter IS NOT NULL";
+
 /// One row per day for the last year, so the heatmap, streaks and pace all read
-/// from the same series. Dates are UTC — the same clock the log is written on.
+/// from the same series. `chapters` is chapters read, not entries: a day whose
+/// single update jumped five chapters is five chapters. Dates are UTC — the
+/// same clock the log is written on.
 fn daily_activity(conn: &Connection) -> Result<Vec<Day>, String> {
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "WITH RECURSIVE days(d) AS (
                SELECT date('now', ?1)
                UNION ALL
                SELECT date(d, '+1 day') FROM days WHERE d < date('now')
-             )
+             ),
+             advance AS ({CHAPTER_ADVANCE})
              SELECT d,
                     (SELECT COUNT(*) FROM reading_log
                       WHERE date(timestamp, 'unixepoch') = d) AS entries,
-                    (SELECT COUNT(*) FROM reading_log
-                      WHERE action = 'progressed' AND date(timestamp, 'unixepoch') = d) AS chapters
+                    (SELECT COALESCE(CAST(ROUND(SUM(gained)) AS INTEGER), 0)
+                       FROM advance WHERE advance.day = days.d) AS chapters
              FROM days",
-        )
+        ))
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
@@ -346,14 +375,14 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
         .collect();
 
     let mut chapter_stmt = conn
-        .prepare(
-            "SELECT j.value AS tag, COUNT(*) AS chapters
+        .prepare(&format!(
+            "SELECT j.value AS tag, CAST(ROUND(SUM(a.gained)) AS INTEGER) AS chapters
              FROM novels n
              CROSS JOIN json_each(n.tags) j
-             JOIN reading_log rl ON rl.novel_id = n.id AND rl.action = 'progressed'
+             JOIN ({CHAPTER_ADVANCE}) a ON a.novel_id = n.id
              WHERE n.tags IS NOT NULL AND json_valid(n.tags) AND json_type(n.tags) = 'array'
              GROUP BY j.value",
-        )
+        ))
         .map_err(|e| e.to_string())?;
 
     let chapters: Vec<(String, i64)> = chapter_stmt
@@ -485,17 +514,66 @@ mod tests {
         assert_eq!(stats.current_streak, 4, "today is still unlogged, so the streak runs to yesterday");
         assert!(stats.first_entry.is_some());
 
-        assert_eq!(stats.chapters_30d, 2);
-        assert!((stats.chapters_per_day - 2.0 / 30.0).abs() < 0.0001);
-        assert!((stats.chapters_per_active_day - 0.5).abs() < 0.0001);
+        // The log moved 1 → 10 → 20, so it holds 19 chapters of reading, not two
+        // entries. Each gap counts on the day its entry was written.
+        assert_eq!(stats.chapters_30d, 19);
+        assert!((stats.chapters_per_day - 19.0 / 30.0).abs() < 0.0001);
+        assert!((stats.chapters_per_active_day - 19.0 / 4.0).abs() < 0.0001);
+
+        let yesterday = &stats.activity[stats.activity.len() - 2];
+        let day_before = &stats.activity[stats.activity.len() - 3];
+        assert_eq!((day_before.chapters, yesterday.chapters), (9, 10));
 
         assert_eq!(stats.weeks.len(), PACE_WEEKS);
         assert_eq!(
-            stats.weeks.last().unwrap().chapters, 2,
-            "the week ending today holds both logged chapters"
+            stats.weeks.last().unwrap().chapters, 19,
+            "the week ending today holds every chapter the log moved"
         );
         assert_eq!(stats.weeks[stats.weeks.len() - 2].chapters, 0, "the week before it is empty");
-        assert_eq!(stats.weeks.iter().map(|w| w.chapters).sum::<i64>(), 2);
+        assert_eq!(stats.weeks.iter().map(|w| w.chapters).sum::<i64>(), 19);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The reading log stores the chapter an entry landed on, not how far it
+    /// jumped, so the gap has to be recovered from the novel's own history
+    #[test]
+    fn a_jump_counts_every_chapter_in_it() {
+        let path = fresh_db("jump");
+        let conn = Connection::open(&path).unwrap();
+
+        conn.execute(
+            "INSERT INTO novels (canonical_title, status) VALUES
+               ('Jumped', 'reading'), ('First Entry', 'reading'),
+               ('Corrected', 'reading'), ('Small Step', 'reading'),
+               ('Half Chapter', 'reading')",
+            [],
+        ).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO reading_log (novel_id, action, chapter, timestamp) VALUES
+               (1, 'started',     1, strftime('%s','now') - 3 * 86400),
+               (1, 'progressed',  5, strftime('%s','now') - 1 * 86400),
+               (2, 'progressed', 12, strftime('%s','now') - 1 * 86400),
+               (3, 'started',    40, strftime('%s','now') - 2 * 86400),
+               (3, 'progressed', 38, strftime('%s','now') - 1 * 86400),
+               (4, 'started',    10, strftime('%s','now') - 3 * 86400),
+               (4, 'progressed', 12, strftime('%s','now') - 2 * 86400),
+               (5, 'started',    20, strftime('%s','now') - 4 * 86400),
+               (5, 'progressed', 21.5, strftime('%s','now') - 3 * 86400)",
+        ).unwrap();
+
+        let stats = build_stats(path.to_str().unwrap()).unwrap();
+        let day = |days_ago: usize| &stats.activity[stats.activity.len() - 1 - days_ago];
+
+        assert_eq!(
+            day(1).chapters, 5,
+            "1 → 5 is four chapters, plus one for the novel with no earlier chapter, \
+             and the backwards correction adds nothing"
+        );
+        assert_eq!(day(2).chapters, 2, "10 → 12 is two chapters");
+        assert_eq!(day(3).chapters, 2, "20 → 21.5 rounds to the nearest whole chapter");
+        assert_eq!(stats.chapters_30d, 9, "the pace numbers follow the per-day counts");
 
         let _ = std::fs::remove_file(&path);
     }
@@ -561,10 +639,10 @@ mod tests {
         assert_eq!(
             tags,
             vec![
-                ("LitRPG".to_string(), 2, 1, 0, 2),
-                ("Weak to Strong".to_string(), 2, 0, 1, 2),
+                ("LitRPG".to_string(), 2, 1, 0, 19),
+                ("Weak to Strong".to_string(), 2, 0, 1, 19),
             ],
-            "per-tag novels, outcomes and logged chapters"
+            "per-tag novels, outcomes and chapters read (1 → 10 → 20)"
         );
 
         assert_eq!(stats.tag_years.len(), 1, "everything was logged this year");
