@@ -444,7 +444,10 @@ function chapterNumber(text) {
   if (!text) return null;
 
   const trimmed = String(text).trim();
-  if (!trimmed || trimmed.length > 40) return null;
+  // A real table-of-contents link reads "Chapter 12: Some Long Chapter Title", so
+  // the length cap only exists to skip paragraphs — the patterns are anchored,
+  // the text is not
+  if (!trimmed || trimmed.length > 120) return null;
 
   const match =
     trimmed.match(/^(?:chapter|chap|ch|episode|ep)\.?\s*(\d+(?:\.\d+)?)/i) ??
@@ -579,6 +582,41 @@ function detectLatestChapters(current) {
   return null;
 }
 
+// Some sites draw the chapter list after the page has loaded — Royal Road logs
+// "Loading volumes" and fills its table of contents in afterwards, so the scan
+// that ran at that moment saw an empty page. Look again a bounded number of times
+// and report the answer when it finally appears. Nothing is fetched: this only
+// re-reads the page the user is already on, and it stops after a few seconds
+// whether or not anything turned up.
+const LATE_RESCAN_MS = 800;
+const LATE_RESCAN_TRIES = 6;
+
+function watchForLateLatest(current, report) {
+  const startedHref = window.location.href;
+  let tries = 0;
+
+  const look = () => {
+    // An in-page navigation means this page's list is no longer the one we want
+    if (window.location.href !== startedHref) return;
+
+    const latest = detectLatestChapters(current);
+    if (latest) {
+      console.log("[Noveltrackr] chapter information appeared late:", latest);
+      report(latest);
+      return;
+    }
+
+    tries += 1;
+    if (tries < LATE_RESCAN_TRIES) {
+      setTimeout(look, LATE_RESCAN_MS);
+    } else {
+      console.log("[Noveltrackr] no chapter information on this page after", tries, "looks");
+    }
+  };
+
+  setTimeout(look, LATE_RESCAN_MS);
+}
+
 function run() {
   console.log("[Noveltrackr] run() called on:", window.location.href);
 
@@ -642,16 +680,23 @@ function run() {
     const latest = detectLatestChapters(current);
     console.log("[Noveltrackr] chapter page:", result, "latest:", latest);
 
-    chrome.runtime.sendMessage({
-      type: "CHAPTER_DETECTED",
-      payload: {
-        title: result.title,
-        chapter: result.chapter,
-        url: window.location.href,
-        domain: hostName(),
-        latest,
-      }
-    }).catch((e) => console.log("[Noveltrackr] sendMessage failed:", e));
+    const report = (observed) => {
+      chrome.runtime.sendMessage({
+        type: "CHAPTER_DETECTED",
+        payload: {
+          title: result.title,
+          chapter: result.chapter,
+          url: window.location.href,
+          domain: hostName(),
+          latest: observed,
+        }
+      }).catch((e) => console.log("[Noveltrackr] sendMessage failed:", e));
+    };
+
+    report(latest);
+
+    // The chapter menu and nav can be drawn after load too
+    if (!latest) watchForLateLatest(current, report);
     return;
   }
 
@@ -697,12 +742,26 @@ function run() {
   // An index page is the best evidence there is: it lists the chapters themselves
   const latest = detectLatestChapters(null);
 
-  if (author || tags.length > 0 || latest) {
+  const report = (observed) => {
+    if (!author && tags.length === 0 && !observed) return;
+
     chrome.runtime.sendMessage({
       type: "METADATA_DETECTED",
-      payload: { title: indexTitle, author, tags, source, latest },
+      payload: { title: indexTitle, author, tags, source, latest: observed },
     }).catch((e) => console.log("[Noveltrackr] metadata message failed:", e));
+  };
+
+  if (latest) {
+    console.log("[Noveltrackr] latest chapter on this page:", latest);
+  } else {
+    console.log("[Noveltrackr] no chapter list on this page yet — looking again while it settles");
   }
+
+  report(latest);
+
+  // Royal Road logs "Loading volumes" and draws the list afterwards, so the scan
+  // above is usually too early to see anything
+  if (!latest) watchForLateLatest(null, report);
 
   scheduleCoverDetection(indexTitle, tags.length > 0 ? { author, tags, source } : { author });
 }

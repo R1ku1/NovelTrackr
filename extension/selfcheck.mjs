@@ -314,15 +314,24 @@ function makeDom() {
   });
   vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
 
-  assert.equal(timers.length, 1, "loading a page must schedule exactly one cover check");
+  // A cover check, plus — because nothing on this page says how far the site has
+  // got — one bounded look-again for a chapter list
+  assert.equal(timers.length, 2, "a cover check and one look-again are pending");
 
-  // A second run() (turbo/pjax navigation) must replace the pending timer, not add another
+  // A second run() (turbo/pjax navigation) must replace the pending cover timer,
+  // not add a second one
   ctx.run();
-  assert.equal(timers[0], null, "re-running must cancel the previous timer");
-  assert.equal(timers.filter(Boolean).length, 1, "only one cover check may be pending");
+  assert.equal(timers[1], null, "re-running must cancel the previous cover timer");
+  assert.equal(
+    timers.filter(Boolean).length,
+    3,
+    "two look-agains and one cover check may be pending — never two cover checks",
+  );
 
-  // Firing it finds the cover and reports this page once
-  timers[1]();
+  // Firing what the second run queued finds the cover and reports this page once.
+  // The look-again finds nothing here, so it only schedules its next attempt.
+  timers[2]();
+  timers[3]();
   const sent = chrome.calls.messages;
   assert.equal(sent.length, 1, "a found cover must be sent once");
   assert.equal(sent[0].type, "COVER_DETECTED");
@@ -332,7 +341,8 @@ function makeDom() {
   // If the page navigates in-page while we wait, the stale title must not be sent
   ctx.run();
   location.href = "https://www.novelupdates.com/series/something-else/";
-  timers[2]();
+  const lastTwo = timers.map((fn, id) => [id, fn]).filter(([, fn]) => fn).slice(-2);
+  lastTwo.forEach(([, fn]) => fn());
   assert.equal(chrome.calls.messages.length, 1, "a page change must drop the pending detection");
 
   console.log("\u2713 content.js keeps one pending cover check and drops it when the page changes");
@@ -402,7 +412,9 @@ function makeDom() {
   assert.deepEqual([...metadata.payload.tags], ["LitRPG", "Progression Fantasy"], "tags must be trimmed and de-duplicated");
   assert.equal(metadata.payload.source, "royalroad", "tags must be labelled with the site they came from");
 
-  timers[0]();
+  // The cover check is queued after the look-again for a chapter list, so it is
+  // the last timer this page put in the queue
+  timers.filter(Boolean).at(-1)();
   const coverMsg = chrome.calls.messages.find((m) => m.type === "COVER_DETECTED");
   assert.equal(coverMsg.payload.author, "Guiltythree", "the author rides along with the cover");
   assert.deepEqual([...coverMsg.payload.tags], ["LitRPG", "Progression Fantasy"], "the tags ride along with the cover");
@@ -991,7 +1003,9 @@ function makeDom() {
   });
   vm.runInContext(read("content.js"), pageCtx, { filename: "content.js" });
 
-  pageTimers[0]();
+  // The cover check is the last timer an index page queues (the look-again for a
+  // chapter list comes first)
+  pageTimers.filter(Boolean).at(-1)();
   const reported = pageChrome.calls.messages.find((m) => m.type === "COVER_DETECTED");
   assert.ok(reported, "an index page with a cover must report it");
   assert.equal(reported.payload.title, "Shadow Slave", "the series title must be resolved");
@@ -1068,7 +1082,7 @@ function makeDom() {
     chrome,
     document,
     window: { location },
-    setTimeout,
+    setTimeout: () => 0,
     clearTimeout,
     console: silent,
   });
@@ -1110,7 +1124,7 @@ function makeDom() {
     chrome,
     document,
     window: { location },
-    setTimeout,
+    setTimeout: () => 0,
     clearTimeout,
     console: silent,
   });
@@ -1153,7 +1167,7 @@ function makeDom() {
     chrome,
     document,
     window: { location },
-    setTimeout,
+    setTimeout: () => 0,
     clearTimeout,
     console: silent,
   });
@@ -1252,6 +1266,70 @@ function makeDom() {
   );
   assertAuthed(calls, "background.js (latest chapter)");
   console.log("\u2713 background.js passes the observation to the routes, and only when there is one");
+}
+
+
+// ── 28. content.js: a chapter list the page renders after load ────────────────
+{
+  // Royal Road logs "Loading volumes" and fills its table of contents in
+  // afterwards, so one scan at document_idle sees an empty page and reports
+  // nothing. The page is the user's, so looking again is allowed — the fix is not
+  // to guess, it is to wait a moment and look again.
+  const location = {
+    href: "https://www.royalroad.com/fiction/21220/mother-of-learning",
+    hostname: "www.royalroad.com",
+    pathname: "/fiction/21220/mother-of-learning",
+  };
+
+  let rendered = false;
+  const toc = Array.from({ length: 106 }, (_, i) => ({
+    tagName: "A",
+    textContent: `Chapter ${i + 1}: A Chapter Title Long Enough To Matter`,
+    className: "",
+    getAttribute: (name) => (name === "href" ? "/chapter" : null),
+    hasAttribute: () => false,
+  }));
+
+  const chrome = makeChrome({});
+  const document = {
+    title: "Mother of Learning | Royal Road",
+    querySelector: () => null,
+    querySelectorAll: (sel) => (sel === "a" && rendered ? toc : []),
+    addEventListener: () => {},
+  };
+
+  const timers = [];
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { location },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  assert.equal(
+    chrome.calls.messages.filter((m) => m.type === "METADATA_DETECTED").length,
+    0,
+    "an empty page must not be reported as anything at all",
+  );
+
+  // The site finishes drawing the list
+  rendered = true;
+  while (timers.length > 0) {
+    const fn = timers.shift();
+    if (fn) fn();
+  }
+
+  const metadata = chrome.calls.messages.find((m) => m.type === "METADATA_DETECTED");
+  assert.ok(metadata, "a list that appears late must still be reported");
+  assert.deepEqual(
+    { ...metadata.payload.latest },
+    { latest_chapter: 106, confidence: "exact", total_chapters: 106 },
+    "and it reads as a whole table of contents, long chapter titles included",
+  );
+  console.log("\u2713 content.js waits for a chapter list the page renders late");
 }
 
 
