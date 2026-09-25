@@ -54,20 +54,15 @@ body {
 }
 
 /* ── Five stars ────────────────────────────────────────────────────────────────
-   A five-star novel's row or card wears a gold ring (two inset shadows, set inline in
-   App.tsx, so it works on a table row as well as a card and leaves the box's own
-   background and hover alone).
+   A five-star novel's cover is foil-stamped: a gradient frame that is always there (see
+   getCoverFrameStyle in App.tsx), and this is the highlight that sweeps across it. The
+   sweep is triggered by pointing at the cover itself or anywhere on the row or card it
+   sits in, and by keyboard focus, so tabbing to a row shows it too.
 
-   This is the highlight that sweeps across the card while it is being pointed at or
-   focused. Only the card gets it: an absolutely positioned overlay needs its host to be
-   a containing block, which a table row is not in every engine, and a mispositioned
-   overlay would sweep across the whole window rather than the row. So the list keeps the
-   ring and does without the sweep.
-
-   The sweep runs on a 3.6s cycle — under a second to cross, then still — and repeats for
-   as long as the pointer or focus stays. Nothing runs on an idle library. The
-   reduced-motion rule above collapses the animation to a single invisible frame, which is
-   safe precisely because the ring, not the movement, is what says "five stars". */
+   It runs on a 3.6s cycle — under a second to cross, then still — and repeats for as long
+   as the pointer or focus stays. Nothing runs on an idle library. The reduced-motion rule
+   above collapses the animation to a single invisible frame, which is safe precisely
+   because the frame, not the movement, is what says "five stars". */
 .foil {
   position: relative;
   overflow: hidden;
@@ -91,7 +86,8 @@ body {
 }
 
 .foil:hover::after,
-.foil:focus-within::after {
+.foil-host:hover .foil::after,
+.foil-host:focus-within .foil::after {
   opacity: 1;
   animation: foil-sweep 3.6s ease-out infinite;
 }

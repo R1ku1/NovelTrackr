@@ -209,31 +209,38 @@ check("the library doesn't redo its work every time something re-renders", () =>
 });
 
 // ── Five stars ────────────────────────────────────────────────────────────────
-check("five stars wear a gold ring, and never rely on motion or colour alone", () => {
+check("five stars wear a foil frame, and never rely on motion or colour alone", () => {
   assert.match(app, /function isFavourite\(novel: \{ rating: number \| null \}\)/);
   assert.match(app, /return novel\.rating === 5;/, "the treatment must be exactly five stars");
 
-  // The ring goes around the whole row and the whole card, never around the cover alone
-  assert.match(app, /getTrStyle\(hovered, favourite\)/, "the list row has no ring");
-  assert.match(app, /getGridCardStyle\(hovered, favourite\)/, "the grid card has no ring");
-  assert.match(app, /boxShadow: favourite \? FOIL_RING : undefined/);
-  assert.equal((app.match(/FOIL_RING/g) || []).length, 3, "the ring is not on both views");
+  // The frame is on the cover in both views, and nowhere else: a gold edge around a whole
+  // row read as a selected item rather than a favourite one
   assert.equal(
-    (app.match(/<div style=\{styles\.(list|grid)Cover\}>/g) || []).length,
+    (app.match(/getCoverFrameStyle\(styles\.\w+/g) || []).length,
     2,
-    "the ring is still wrapped around the cover"
+    "the cover in one of the two views has no frame"
+  );
+  assert.match(app, /border: "3px solid transparent"/);
+  assert.ok(!/boxShadow: favourite/.test(app), "the ring is back on the row or card");
+
+  // Pointing at the row or card sweeps the cover, and so does focusing it
+  assert.equal((app.match(/"foil-host"/g) || []).length, 2, "pointing at a row or card would not sweep the cover");
+  assert.equal(
+    (app.match(/className=\{favourite \? "foil" : undefined\}/g) || []).length,
+    2,
+    "the cover in one of the views cannot be swept"
   );
 
   // The rating is said in words, and there is no tooltip on it
-  assert.match(app, /className=\{favourite \? "foil" : undefined\}/, "the card has no sweep");
-  assert.match(app, /className="sr-only"/, "the ring says nothing to a screen reader");
+  assert.match(app, /className="sr-only"/, "the frame says nothing to a screen reader");
   assert.match(app, /FAVOURITE_LABEL = "Rated 5 out of 5 stars"/);
-  assert.ok(!/title=\{favourite/.test(app), "a tooltip is back on the ring");
+  assert.ok(!/title=\{favourite/.test(app), "a tooltip is back on the frame");
 
-  // The ring is permanent; the sweep repeats while it is being pointed at or focused
+  // The frame is permanent; the sweep repeats while it is being pointed at or focused
   assert.match(css, /\.sr-only \{/);
   assert.match(css, /\.foil:hover::after/);
-  assert.match(css, /\.foil:focus-within::after/, "the keyboard gets no sweep");
+  assert.match(css, /\.foil-host:hover \.foil::after/);
+  assert.match(css, /\.foil-host:focus-within \.foil::after/, "the keyboard gets no sweep");
   assert.match(css, /animation: foil-sweep 3\.6s ease-out infinite/, "the sweep does not repeat");
   assert.match(css, /@keyframes foil-sweep \{[\s\S]*?100% \{/, "the sweep never rests between runs");
   assert.ok(!/\.foil \{[\s\S]{0,160}animation:/.test(css), "the foil animates without being pointed at");
@@ -244,7 +251,6 @@ check("five stars wear a gold ring, and never rely on motion or colour alone", (
   assert.match(app, /paused:.*#fb923c/);
   assert.match(forms, /"paused"[\s\S]{0,80}#fb923c/, "the picker and the badge disagree about paused");
 });
-
 // ── Styling and motion ────────────────────────────────────────────────────────
 check("no blanket transitions or unset outlines", () => {
   const files = [["App.tsx", app], ["formComponents.tsx", forms], ["StatsPanel.tsx", stats],
