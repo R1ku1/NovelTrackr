@@ -653,6 +653,47 @@ function watchForLateLatest(current, report, initial) {
   setTimeout(look, LATE_RESCAN_MS);
 }
 
+// ── NovelUpdates releases ─────────────────────────────────────────────────────
+// NU's series page lists the 15 newest releases as links like
+// <a class="chp-release" title="c273">c273</a>, with the group that released them in
+// the same row. That is a window of one group's numbering rather than a table of
+// contents, so the number is only ever *offered* — nothing is written until the user
+// says so in the popup — and it goes in as a lower bound, which can raise the stored
+// number but never weaken or lower it.
+const NU_RELEASE_SELECTOR = "a.chp-release";
+const NU_RELEASE_TOKEN = /^(?:v\d+)?c(\d+(?:\.\d+)?)$/i;
+
+function nuRelease() {
+  const numbers = [];
+  let newest = null;
+  let group = null;
+
+  for (const link of document.querySelectorAll(NU_RELEASE_SELECTOR)) {
+    const match = (link.textContent || "").trim().match(NU_RELEASE_TOKEN);
+    if (!match) continue;
+
+    const number = parseFloat(match[1]);
+    if (!Number.isFinite(number)) continue;
+
+    numbers.push(number);
+    if (newest === null || number > newest) {
+      newest = number;
+      // The group sits in the middle cell of the same row
+      group = link.closest?.("tr")?.querySelector?.("td:nth-child(2) a")?.textContent?.trim() || null;
+    }
+  }
+
+  // One stray release link is not a list; the window has to look like one
+  if (newest === null || numbers.length < 2) return null;
+
+  return {
+    latest_chapter: newest,
+    confidence: "lower_bound",
+    token: `c${newest}`,
+    group,
+  };
+}
+
 function run() {
   console.log("[Noveltrackr] run() called on:", window.location.href);
 
@@ -792,16 +833,18 @@ function run() {
   if (latest) {
     console.log("[Noveltrackr] latest chapter on this page:", latest);
   } else if (onNu) {
-    // NovelUpdates is a database of other sites' releases: its series pages carry
-    // "KJ Translations c273", "Status in COO 260+ Chapters", and reviewers' own
-    // "Status: c140" notes. Every one of those is numbered by whatever group or
-    // original it belongs to, which is not comparable with the chapter number you
-    // read on the site you actually read on. Taking a maximum from here would be a
-    // guess, and the app only ever raises this number, so a wrong one would stick.
-    // Tags, author and cover are NU's job; the count is left unknown.
-    console.log(
-      "[Noveltrackr] NovelUpdates lists other sites' releases, not one chapter list — leaving the count unknown"
-    );
+    // NU is a database of other sites' releases, and every row is numbered by the
+    // group that released it, so its number is offered to the user rather than
+    // written (see nuRelease) — and never guessed at when the table isn't there.
+    const release = nuRelease();
+    if (release) {
+      console.log("[Noveltrackr] NovelUpdates newest release:", release.group, release.token, "— offered in the popup, not written");
+      chrome.runtime
+        .sendMessage({ type: "NU_RELEASE_DETECTED", payload: { title: indexTitle, ...release } })
+        .catch((e) => console.log("[Noveltrackr] NU release message failed:", e));
+    } else {
+      console.log("[Noveltrackr] NovelUpdates shows no release table on this page — leaving the count unknown");
+    }
   } else {
     console.log("[Noveltrackr] no chapter list on this page yet — looking again while it settles");
   }

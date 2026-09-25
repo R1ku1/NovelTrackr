@@ -36,6 +36,7 @@ A local-first desktop application for tracking web novel, light novel, and manhw
 - Learns NovelUpdates tag names from the series pages you visit, so the app can suggest tags and match their spelling
 - Turns a NovelUpdates search into a pick-list and captures the series you choose
 - Reads the site's own latest chapter and chapter count off pages you are already on — a chapter menu, the last chapter of a series, or a table of contents — and reports nothing at all when a page doesn't say
+- Offers NovelUpdates' newest release in the popup for confirmation rather than using it silently: it is another group's numbering, so it is filed as a lower bound, and the app ignores any number below the chapter you have already read
 - Works generically across most reading sites with site-specific support for Royal Road, ScribbleHub, NovelFire and NovelUpdates
 
 ## Installation
@@ -58,4 +59,6 @@ The desktop app must be running (in tray is fine) for the extension to communica
 - Backups: `%APPDATA%\com.aweso.noveltrackr\backups\` — the last 7 daily snapshots, plus the 5 most recent copies taken before a restore. Any of them can be restored with `Restore Backup` on the stats page, or opened directly with a SQLite viewer.
 - NovelUpdates sits behind Cloudflare, so the extension only ever fills its search box and lets you run the search — no request is made that you didn't make
 - The latest chapter the app knows about is whatever the extension last saw on a page you visited. It is never fetched in the background, and a novel nobody has browsed shows no badge rather than "0 new" — the stats say how many novels they actually have data for
+- These numbers only ever go up: a page can add information, but it can never lower your progress, lower a chapter total, or replace a count read off a table of contents with a weaker one
+- The extension's silent page-to-app writes log to its service worker console (`chrome://extensions` → Noveltrackr → *service worker*), which is where to look when a page seems to have reported nothing
 - This is a personal tool — no accounts, no cloud sync, no telemetry

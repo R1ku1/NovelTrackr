@@ -53,6 +53,21 @@ async function clearNuPending(tabId) {
   chrome.action.setBadgeText({ text: "", tabId });
 }
 
+// NU's newest release, offered to the user rather than written: it belongs to one
+// group's numbering, so the popup asks before the app is told anything
+async function setNuRelease(tabId, data) {
+  await chrome.storage.local.set({ [`nu_release_${tabId}`]: data });
+}
+
+async function getNuRelease(tabId) {
+  const result = await chrome.storage.local.get(`nu_release_${tabId}`);
+  return result[`nu_release_${tabId}`] || null;
+}
+
+async function clearNuRelease(tabId) {
+  await chrome.storage.local.remove(`nu_release_${tabId}`);
+}
+
 async function getNuSeriesNovel(url) {
   if (!url) return null;
   const result = await chrome.storage.local.get(`nu_match:${url}`);
@@ -255,6 +270,15 @@ async function handleMetadataDetection({ title, author, tags, source, url, tabId
       return;
     }
 
+    // The one log that answers "the page detected it, so why is my library
+    // unchanged?" — service worker console, not the page's
+    console.log("[Noveltrackr] page reported to the app:", {
+      novel: matches[0]?.canonical_title ?? title,
+      author: author ?? null,
+      tags: hasTags ? tags.length : 0,
+      ...observed,
+    });
+
     // The popup reports what the NU flow captured, so a cover offer on the same
     // page is not the only thing the user sees
     if (source === "nu" && tabId && hasTags) {
@@ -265,6 +289,43 @@ async function handleMetadataDetection({ title, author, tags, source, url, tabId
     if (source === "nu") await postVocabulary(tags);
   } catch (e) {
     console.error("[Noveltrackr] handleMetadataDetection failed:", e);
+  }
+}
+
+// ── NovelUpdates releases, on the user's say-so ───────────────────────────────
+// The page offered NU's newest release. It is one group's numbering, so it is
+// written only when the user confirms it in the popup, and then as a lower bound:
+// it can raise the app's number but never weaken or lower it, and the app ignores
+// anything below the chapter they have already read.
+async function useNuRelease({ title, latest_chapter, tabId }) {
+  const running = await isAppRunning();
+  if (!running) return { error: "app_not_running" };
+
+  try {
+    const novels = await getNovels();
+    const matches = findMatches(title, novels);
+    const novelId = matches[0]?.id ?? null;
+    if (!novelId) return { error: "not_in_library" };
+
+    const res = await fetch(`${API}/metadata`, {
+      method: "POST",
+      headers: API_HEADERS,
+      body: JSON.stringify({
+        novel_id: novelId,
+        latest_chapter,
+        latest_chapter_confidence: "lower_bound",
+      }),
+    });
+
+    if (!res.ok) return { error: await res.text() };
+
+    if (tabId) await clearNuRelease(tabId);
+
+    const novelTitle = matches[0]?.canonical_title ?? title;
+    console.log("[Noveltrackr] NU release confirmed as a lower bound:", { novel: novelTitle, latest_chapter });
+    return { ok: true, title: novelTitle };
+  } catch (e) {
+    return { error: e.message };
   }
 }
 
@@ -519,6 +580,34 @@ if (message.type === "COVER_DETECTED") {
     return false;
   }
 
+  // NU's release table: remembered for the popup to offer, never written from here
+  if (message.type === "NU_RELEASE_DETECTED") {
+    const tabId = sender.tab?.id;
+    if (tabId) setNuRelease(tabId, { ...message.payload, tabId }).catch(console.error);
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message.type === "GET_NU_RELEASE") {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (!tabId) {
+        sendResponse(null);
+        return;
+      }
+      sendResponse(await getNuRelease(tabId));
+    });
+    return true;
+  }
+
+  // The user confirmed the offered number in the popup
+  if (message.type === "USE_NU_RELEASE") {
+    useNuRelease(message.payload)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ error: e.message }));
+    return true;
+  }
+
   if (message.type === "NU_SEARCH_DETECTED") {
     handleNuSearch({ ...message.payload, tabId: sender.tab?.id }).catch(console.error);
     sendResponse({ ok: true });
@@ -606,6 +695,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.remove(`cover_${tabId}`);
   chrome.storage.local.remove(`nu_${tabId}`);
   chrome.storage.local.remove(`nu_saved_${tabId}`);
+  chrome.storage.local.remove(`nu_release_${tabId}`);
 });
 
 // ── Navigating away invalidates whatever was detected on the previous page ────
@@ -618,4 +708,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   clearCoverPending(tabId);
   // The tag summary belongs to the page it was captured on
   chrome.storage.local.remove(`nu_saved_${tabId}`);
+  // And so does the release row that page offered
+  chrome.storage.local.remove(`nu_release_${tabId}`);
 });

@@ -13,7 +13,7 @@ const read = (f) => readFileSync(path.join(dir, f), "utf8");
 
 const silent = { log() {}, error() {}, warn() {} };
 
-function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending = null, nuSaved = null } = {}) {
+function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending = null, nuSaved = null, nuRelease = null } = {}) {
   const calls = { badge: [], messages: [], tabs: [] };
   const listeners = {};
   return {
@@ -33,6 +33,7 @@ function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending =
         if (msg.type === "GET_COVER_PENDING") return coverPending;
         if (msg.type === "GET_NU_PENDING") return nuPending;
         if (msg.type === "GET_NU_SAVED") return nuSaved;
+        if (msg.type === "GET_NU_RELEASE") return nuRelease;
         return { ok: true };
       },
     },
@@ -1509,6 +1510,185 @@ function makeDom() {
     "only the cover check is pending: there is no chapter list here to wait for",
   );
   console.log("\u2713 content.js takes NovelUpdates' tags and leaves its chapter numbers alone");
+}
+
+
+// ── 32. content.js: NovelUpdates' release table, offered not written ──────────
+{
+  const fixture = path.join(dir, "..", "novelupdate.txt");
+  if (existsSync(fixture)) {
+    const html = readFileSync(fixture, "utf8");
+    // Each row is "date | group | release", with the release as a.chp-release.
+    // Attribute order is whatever the site felt like, so the title is read out of
+    // the matched tag rather than assumed.
+    const rows = [
+      ...html.matchAll(
+        /<a href="https:\/\/www\.novelupdates\.com\/group\/[^"]*">([^<]{1,60})<\/a>[\s\S]{0,400}?(<a[^>]*class="chp-release"[^>]*>)/g,
+      ),
+    ]
+      .map((m) => ({ group: m[1].trim(), token: m[2].match(/title="([^"]+)"/)?.[1] }))
+      .filter((row) => row.token);
+
+    assert.ok(rows.length > 5, "the fixture should carry the release window");
+
+    const anchors = rows.map(({ group, token }) => ({
+      tagName: "A",
+      textContent: token,
+      className: "chp-release",
+      getAttribute: (name) => (name === "href" ? "//www.novelupdates.com/extnu/1/" : null),
+      hasAttribute: () => false,
+      // The group sits in the middle cell of the same row
+      closest: (sel) =>
+        sel === "tr" ? { querySelector: (s) => (s.includes("nth-child(2)") ? { textContent: group } : null) } : null,
+    }));
+
+    const location = {
+      href: "https://www.novelupdates.com/series/semi-coercive-imperialist/",
+      hostname: "www.novelupdates.com",
+      pathname: "/series/semi-coercive-imperialist/",
+    };
+    const chrome = makeChrome({});
+    const document = {
+      title: "Semi-Coercive Imperialist - Novel Updates",
+      // The series page carries its own title element, which is what resolves first
+      querySelector: (sel) => (sel.includes("seriestitlenu") ? { textContent: "Semi-Coercive Imperialist" } : null),
+      querySelectorAll: (sel) => (sel === "a.chp-release" ? anchors : []),
+      addEventListener: () => {},
+    };
+
+    const ctx = vm.createContext({
+      chrome,
+      document,
+      window: { location },
+      setTimeout: () => 0,
+      clearTimeout: () => {},
+      console: silent,
+    });
+    vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+    const offer = chrome.calls.messages.find((m) => m.type === "NU_RELEASE_DETECTED");
+    assert.ok(offer, "the release table must be offered to the popup");
+    assert.deepEqual(
+      { ...offer.payload },
+      {
+        title: "Semi-Coercive Imperialist",
+        latest_chapter: 273,
+        confidence: "lower_bound",
+        token: "c273",
+        group: "KJ Translations",
+      },
+      "the newest release and its group, and never as anything stronger than a lower bound",
+    );
+    assert.equal(
+      chrome.calls.messages.filter((m) => m.type === "METADATA_DETECTED").length,
+      0,
+      "nothing is written from the page — this is an offer",
+    );
+    console.log("\u2713 content.js offers NovelUpdates' newest release instead of writing it");
+  } else {
+    console.log("\u2013 skipped NovelUpdates release check (novelupdate.txt not present)");
+  }
+}
+
+
+// ── 33. popup.js: NU's release is offered, and only written when confirmed ────
+{
+  const release = {
+    title: "Semi-Coercive Imperialist",
+    latest_chapter: 273,
+    confidence: "lower_bound",
+    token: "c273",
+    group: "KJ Translations",
+  };
+  const cover = {
+    type: "cover",
+    novelId: 5,
+    coverUrl: "https://cdn.novelupdates.com/images/2025/12/SemiCoercive-Imperialist.jpg",
+    tabId: 7,
+  };
+
+  const chrome = makeChrome({}, { badge: "+", coverPending: cover, nuRelease: release });
+  const { el, document } = makeDom();
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => { fn(); return 0; },
+    Promise,
+  });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  assert.match(el("body").innerHTML, /NovelUpdates' newest release/, "the offer must be shown");
+  assert.match(el("body").innerHTML, /KJ Translations/, "and say whose numbering it is");
+  assert.match(el("body").innerHTML, /c273/, "and what the number is");
+  assert.equal(
+    chrome.calls.messages.filter((m) => m.type === "USE_NU_RELEASE").length,
+    0,
+    "showing it must not write it",
+  );
+
+  await el("btnUseNuRelease").onclick();
+  await tick();
+
+  const sent = chrome.calls.messages.find((m) => m.type === "USE_NU_RELEASE");
+  assert.deepEqual({ ...sent?.payload }, release, "confirming sends exactly what was offered");
+  assert.match(el("btnUseNuRelease").innerHTML, /recorded/, "and the popup says it landed");
+  console.log("\u2713 popup.js offers NovelUpdates' newest release and writes only on confirmation");
+}
+
+// ── 34. background.js: the confirmed release goes in as a lower bound ─────────
+{
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const { calls, fetchStub } = makeFetch([
+    { id: 5, canonical_title: "Semi-Coercive Imperialist", aliases: [], current_chapter_raw: "Chapter 10" },
+  ]);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  // The page offered it — remembered for the popup, and nothing written
+  chrome.listeners.message(
+    {
+      type: "NU_RELEASE_DETECTED",
+      payload: {
+        title: "Semi-Coercive Imperialist",
+        latest_chapter: 273,
+        confidence: "lower_bound",
+        token: "c273",
+        group: "KJ Translations",
+      },
+    },
+    { tab: { id: 7 } },
+    () => {},
+  );
+  await tick();
+
+  assert.ok(storage["nu_release_7"], "the offer is remembered for the popup");
+  assert.equal(calls.filter((c) => c.url.endsWith("/metadata")).length, 0, "and nothing is written yet");
+
+  let answer = null;
+  chrome.listeners.message(
+    { type: "USE_NU_RELEASE", payload: storage["nu_release_7"] },
+    { tab: { id: 7 } },
+    (r) => { answer = r; },
+  );
+  for (let i = 0; i < 10 && !calls.some((c) => c.url.endsWith("/metadata")); i++) await tick();
+
+  const metadata = calls.find((c) => c.url.endsWith("/metadata"));
+  assert.deepEqual(
+    metadata?.body,
+    { novel_id: 5, latest_chapter: 273, latest_chapter_confidence: "lower_bound" },
+    "the confirmed number, and never as an exact read",
+  );
+  assert.equal(answer?.ok, true, "the popup is told it landed");
+  assert.equal(storage["nu_release_7"], undefined, "and the offer is cleared once used");
+  assertAuthed(calls, "background.js (NU release)");
+  console.log("\u2713 background.js writes the confirmed release as a lower bound, once");
 }
 
 

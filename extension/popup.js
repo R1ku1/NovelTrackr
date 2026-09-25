@@ -43,6 +43,38 @@ async function getNuPending() {
 async function getNuSaved() {
   return chrome.runtime.sendMessage({ type: "GET_NU_SAVED" });
 }
+
+async function getNuRelease() {
+  return chrome.runtime.sendMessage({ type: "GET_NU_RELEASE" });
+}
+
+// NovelUpdates' newest release is offered here, and only written if the user says
+// so: the number belongs to whichever group released it, so it goes in as a lower
+// bound they have explicitly accepted rather than as a silent guess.
+async function appendNuReleaseOffer(body) {
+  const release = await getNuRelease();
+  if (!release || !release.token) return;
+
+  body.innerHTML += `
+    <div class="detection-label" style="margin-top:14px;padding-top:12px;border-top:1px solid #22222e">NovelUpdates' newest release</div>
+    <div class="detected-chapter">${esc(release.group ? `${release.group} · ` : "")}${esc(release.token)} — another group's numbering, so it is recorded as a lower bound</div>
+    <button class="btn-update" id="btnUseNuRelease" style="margin-top:10px">Use this number</button>
+  `;
+
+  const button = document.getElementById("btnUseNuRelease");
+  if (!button) return;
+
+  button.onclick = async () => {
+    button.disabled = true;
+    const result = await chrome.runtime.sendMessage({ type: "USE_NU_RELEASE", payload: release });
+    const done = document.getElementById("btnUseNuRelease");
+    if (!done) return;
+
+    done.innerHTML = result?.ok
+      ? `<div class="success">✓ ${esc(release.token)} recorded</div>`
+      : `<div class="state-offline">Couldn't record it (${esc(String(result?.error || "unknown"))})</div>`;
+  };
+}
 async function init() {
   const dot = document.getElementById("statusDot");
   const body = document.getElementById("body");
@@ -91,10 +123,12 @@ async function init() {
   const cover = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
   if (saved) {
     renderNuSaved(body, saved, cover);
+    await appendNuReleaseOffer(body);
     return;
   }
   if (cover) {
     renderCoverPrompt(body, cover);
+    await appendNuReleaseOffer(body);
     return;
   }
 
@@ -106,6 +140,7 @@ async function init() {
     if (attempts > 15) {
       clearInterval(poll);
       body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+      await appendNuReleaseOffer(body);
       return;
     }
 
@@ -129,11 +164,13 @@ async function init() {
     if (s) {
       clearInterval(poll);
       renderNuSaved(body, s, c);
+      await appendNuReleaseOffer(body);
       return;
     }
     if (c) {
       clearInterval(poll);
       renderCoverPrompt(body, c);
+      await appendNuReleaseOffer(body);
       return;
     }
   }, 200);

@@ -259,6 +259,22 @@ fn merge_latest(
         .query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;
 
+    // What the reader has already read, if anything. An observation below that cannot
+    // be the latest chapter of a novel they are part-way through, and a "total" below
+    // it is nonsense, so both are ignored rather than stored. Nothing here ever writes
+    // to the reading progress itself — a page can only ever add information.
+    let read_to: Option<f64> = conn
+        .query_row(
+            "SELECT chapter_sort FROM progress WHERE novel_id = ?1",
+            rusqlite::params![novel_id],
+            |row| row.get::<_, Option<f64>>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .flatten();
+
+    let above_what_is_read = move |value: f64| read_to.map(|here| value >= here).unwrap_or(true);
+
     let incoming = Confidence::parse(confidence).unwrap_or(Confidence::LowerBound);
     let stored_rank = Confidence::parse(stored_confidence.as_deref())
         .unwrap_or(Confidence::LowerBound);
@@ -267,7 +283,7 @@ fn merge_latest(
         (stored_latest, stored_confidence.clone(), stored_seen);
     let mut moved = false;
 
-    if let Some(observed) = latest.filter(|n| n.is_finite() && *n >= 0.0) {
+    if let Some(observed) = latest.filter(|n| n.is_finite() && *n >= 0.0 && above_what_is_read(*n)) {
         let write = match stored_latest {
             None => true,
             Some(previous) if observed > previous => true,
@@ -289,7 +305,7 @@ fn merge_latest(
     // A count only ever arrives from a real table of contents, and it can only
     // grow: a shorter list is a paginated ToC, not a novel that lost chapters.
     let (mut next_total, mut next_total_seen) = (stored_total, stored_total_seen);
-    if let Some(observed) = total.filter(|n| n.is_finite() && *n >= 0.0) {
+    if let Some(observed) = total.filter(|n| n.is_finite() && *n >= 0.0 && above_what_is_read(*n)) {
         if stored_total.map(|previous| observed >= previous).unwrap_or(true) {
             next_total = Some(observed);
             next_total_seen = Some(now);
@@ -1775,6 +1791,47 @@ mod tests {
     fn conn_exec(path: &std::path::Path, sql: &str) {
         let conn = rusqlite::Connection::open(path).unwrap();
         conn.execute(sql, []).unwrap();
+    }
+
+    /// A page's window can be behind what the reader has already read — that is not
+    /// the site's latest chapter, and a "total" below their own progress is nonsense.
+    /// Both are ignored, and no page can ever touch the reading progress itself.
+    #[test]
+    fn an_observation_below_what_is_read_is_ignored() {
+        let path = novel_db("latest-below-read", "");
+        conn_exec(
+            &path,
+            "INSERT INTO progress (novel_id, chapter_raw, chapter_sort) VALUES (1, 'Chapter 10', 10)",
+        );
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        // The offered number is 9 while the reader is on 10
+        assert!(!merge_latest(&conn, 1, Some(9.0), Some("lower_bound"), Some(9.0)).unwrap());
+        assert_eq!(latest_row(&path), (None, None, None, None, None), "nothing was stored");
+
+        let (raw, sort): (String, f64) = conn
+            .query_row(
+                "SELECT chapter_raw, chapter_sort FROM progress WHERE novel_id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (raw.as_str(), sort),
+            ("Chapter 10", 10.0),
+            "the reader's own chapter is the one thing a page never changes"
+        );
+
+        // At or above what is read, the observation counts again
+        assert!(merge_latest(&conn, 1, Some(273.0), Some("lower_bound"), Some(260.0)).unwrap());
+        let (latest, confidence, _, total, _) = latest_row(&path);
+        assert_eq!(
+            (latest, confidence.as_deref(), total),
+            (Some(273.0), Some("lower_bound"), Some(260.0)),
+            "a number ahead of the reader is the whole point of asking"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     fn count_rows(path: &std::path::Path, sql: &str) -> i64 {
