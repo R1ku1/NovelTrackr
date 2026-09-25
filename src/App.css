@@ -79,15 +79,15 @@ body {
   inset: 0;
   pointer-events: none;
   opacity: 0;
-  background-image: linear-gradient(
+  /* A transform, not a background-position: this is composited rather than repainted on
+     every frame, and the card clips it (see .foil above) so it cannot bleed outside */
+  transform: translateX(-130%);
+  background: linear-gradient(
     115deg,
     rgba(255, 255, 255, 0) 38%,
     rgba(255, 255, 255, 0.55) 50%,
     rgba(255, 255, 255, 0) 62%
   );
-  background-size: 260% 100%;
-  background-repeat: no-repeat;
-  background-position: 0% 0;
 }
 
 .foil:hover::after,
@@ -97,9 +97,9 @@ body {
 }
 
 @keyframes foil-sweep {
-  0%   { background-position: 0% 0; }
-  25%  { background-position: 100% 0; }
-  100% { background-position: 100% 0; }
+  0%   { transform: translateX(-130%); }
+  25%  { transform: translateX(130%); }
+  100% { transform: translateX(130%); }
 }
 
 /* For something only a screen reader needs to hear */
