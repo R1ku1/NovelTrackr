@@ -189,6 +189,25 @@ check("covers render through the one shared component", () => {
   assert.ok(!/CoverPreview/.test(app + forms + add + edit), "the per-file cover copies are back");
 });
 
+// ── Library work per render ───────────────────────────────────────────────────
+check("the library doesn't redo its work every time something re-renders", () => {
+  assert.match(forms, /loading="lazy"/, "opening the library fetches every cover at once");
+  assert.match(forms, /decoding="async"/, "cover decoding blocks the paint");
+  assert.match(app, /const filtered = useMemo\(/, "the filter and sort run on every render");
+  assert.match(app, /const tagChoices = useMemo\(/, "the tag chips are rebuilt on every render");
+  assert.ok(
+    !/new Date\([ab]\.updated_at\)/.test(app),
+    "the sort parses dates inside the comparator — n log n parses per keystroke"
+  );
+  assert.match(app, /memo\(function ListRow/, "a keystroke in the search box redraws every row");
+  assert.ok(app.includes("const openNovel = useCallback("), "the row opener is rebuilt on every render");
+  assert.equal(
+    app.split("onOpen={openNovel}").length - 1,
+    2,
+    "a row or card is handed a fresh closure, which defeats its memo"
+  );
+});
+
 // ── Styling and motion ────────────────────────────────────────────────────────
 check("no blanket transitions or unset outlines", () => {
   const files = [["App.tsx", app], ["formComponents.tsx", forms], ["StatsPanel.tsx", stats],

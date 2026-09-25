@@ -577,11 +577,21 @@ function tocEntryNumber(text, href) {
   return slug ? parseFloat(slug[1]) : null;
 }
 
-// Every chapter number an index page lists
+// Every chapter number an index page lists.
+//
+// Bounded on purpose: this runs on every page the user opens, and a home page or a listing
+// can carry thousands of links — none of them chapters. The cap is far above any real
+// table of contents (and the numbers cap already stops a page listing many novels), so it
+// costs nothing in detection and keeps the work per page flat.
+const MAX_TOC_LINKS = 1500;
+
 function tocChapterNumbers() {
   const numbers = new Set();
+  let examined = 0;
 
   for (const link of document.querySelectorAll("a")) {
+    if (++examined > MAX_TOC_LINKS) break;
+
     const number = tocEntryNumber(link.textContent, link.getAttribute?.("href"));
     if (number !== null) numbers.add(number);
     if (numbers.size >= 1000) break;
@@ -654,6 +664,8 @@ function watchForLateLatest(current, report, initial) {
   const startedHref = window.location.href;
   let best = initial || null;
   let tries = 0;
+  let lastLinks = -1;
+  let still = 0;
 
   const look = () => {
     // An in-page navigation means this page's list is no longer the one we want
@@ -664,6 +676,18 @@ function watchForLateLatest(current, report, initial) {
       console.log("[Noveltrackr] chapter information appeared or improved:", latest);
       best = latest;
       report(latest);
+    }
+
+    // A list that never appears does not appear by looking again: once the page has stopped
+    // changing for two looks, stop looking. A site that swaps a placeholder for a real list
+    // of exactly the same length is the one case this can miss.
+    const links = document.querySelectorAll("a").length;
+    if (links === lastLinks) {
+      still += 1;
+      if (still >= 2) return;
+    } else {
+      still = 0;
+      lastLinks = links;
     }
 
     tries += 1;

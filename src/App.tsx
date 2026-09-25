@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { memo, useCallback, useMemo, useState, useEffect } from "react";
 import AddNovelPanel from "./AddNovelPanel";
 import EditNovelPanel, { type EditNovelData } from "./EditNovelPanel";
 import StatsPanel from "./StatsPanel";
@@ -839,14 +839,17 @@ function SourceLink({ url }: { url: string }) {
   );
 }
 
-function ListRow({
+// Memoised: its props are the novel and two stable callbacks, so typing in the search box
+// only redraws the rows that actually change. A fresh arrow per render would make that
+// pointless, which is why the row is handed the novel back rather than a closure.
+const ListRow = memo(function ListRow({
   novel,
   onQuickUpdate,
-  onClick,
+  onOpen,
 }: {
   novel: Novel;
   onQuickUpdate: (novel: Novel) => void;
-  onClick: () => void;
+  onOpen: (novel: Novel) => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -855,7 +858,7 @@ function ListRow({
       style={getTrStyle(hovered)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={onClick}
+      onClick={() => onOpen(novel)}
       tabIndex={0}
       onKeyDown={(e) => {
         // Only when the row itself holds focus — Enter on the + Update button or
@@ -863,7 +866,7 @@ function ListRow({
         if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onClick();
+          onOpen(novel);
         }
       }}
     >
@@ -903,17 +906,19 @@ function ListRow({
       </td>
     </tr>
   );
-}
+});
 
 // ── Grid Card ─────────────────────────────────────────────────────────────────
-function GridCard({
+// Memoised for the same reason as the row above: stable props, so a keystroke elsewhere
+// redraws only the cards whose data changed
+const GridCard = memo(function GridCard({
   novel,
   onQuickUpdate,
-  onClick,
+  onOpen,
 }: {
   novel: Novel;
   onQuickUpdate: (novel: Novel) => void;
-  onClick: () => void;
+  onOpen: (novel: Novel) => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -922,7 +927,7 @@ function GridCard({
       style={getGridCardStyle(hovered)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={onClick}
+      onClick={() => onOpen(novel)}
     >
       <div style={styles.gridCover}>
         <CoverImage url={novel.cover_url} alt="" />
@@ -933,7 +938,7 @@ function GridCard({
         aria-label={`Edit ${novel.canonical_title}`}
         onClick={(e) => {
           e.stopPropagation();
-          onClick();
+          onOpen(novel);
         }}
       >
         {novel.canonical_title}
@@ -953,7 +958,7 @@ function GridCard({
       </div>
     </div>
   );
-}
+});
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 // ── Add Button (floating) ─────────────────────────────────────────────────────
@@ -1001,8 +1006,9 @@ export default function App() {
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
 
   // The filters offer only what the library actually holds: tags by how many
-  // novels carry them, authors alphabetically
-  const tagChoices = (() => {
+  // novels carry them, authors alphabetically. Both are a walk over every novel, so
+  // they follow the library rather than every render.
+  const tagChoices = useMemo(() => {
     const counts = new Map<string, number>();
     for (const n of novels) {
       for (const tag of n.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
@@ -1011,10 +1017,15 @@ export default function App() {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
       .slice(0, TAG_FILTER_CHIPS);
-  })();
+  }, [novels]);
 
-  const authorChoices = [...new Set(novels.map((n) => n.author).filter((a): a is string => !!a))]
-    .sort((a, b) => a.localeCompare(b));
+  const authorChoices = useMemo(
+    () =>
+      [...new Set(novels.map((n) => n.author).filter((a): a is string => !!a))].sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [novels]
+  );
 
   function toggleTag(tag: string) {
     setTagFilter((current) =>
@@ -1027,34 +1038,44 @@ export default function App() {
     setAuthorFilter("all");
   }
 
-  const filtered = novels
-    .filter((n) => {
-      if (statusFilter !== "all" && n.status !== statusFilter) return false;
-      if (authorFilter !== "all" && (n.author ?? "") !== authorFilter) return false;
-      // Every chosen tag has to be on the novel, so stacking them narrows
-      if (tagFilter.some((tag) => !n.tags.includes(tag))) return false;
+  // The filtered, sorted view is a full pass over the library, so it runs when one of the
+  // things that decides it changes — not on every render (a hover, a toast, a keystroke in
+  // another field). The search term is lower-cased once here, and the sort key is parsed
+  // once per novel: `new Date()` inside the comparator was two parses per comparison,
+  // which is n log n of them per keystroke.
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const updatedAt = new Map(novels.map((n) => [n.id, Date.parse(n.updated_at) || 0]));
 
-      const q = search.trim().toLowerCase();
-      if (q) {
-        // Notes are where "where I left off" lives, so search has to reach them
-        return (
-          n.canonical_title.toLowerCase().includes(q) ||
-          n.aliases.some((a) => a.toLowerCase().includes(q)) ||
-          (n.author ?? "").toLowerCase().includes(q) ||
-          (n.notes ?? "").toLowerCase().includes(q)
-        );
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortKey === "updated")
-        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-      if (sortKey === "title")
-        return a.canonical_title.localeCompare(b.canonical_title);
-      if (sortKey === "chapter")
-        return (b.chapter_sort ?? -1) - (a.chapter_sort ?? -1);
-      return 0;
-    });
+    return novels
+      .filter((n) => {
+        if (statusFilter !== "all" && n.status !== statusFilter) return false;
+        if (authorFilter !== "all" && (n.author ?? "") !== authorFilter) return false;
+        // Every chosen tag has to be on the novel, so stacking them narrows
+        if (tagFilter.some((tag) => !n.tags.includes(tag))) return false;
+
+        if (q) {
+          // Notes are where "where I left off" lives, so search has to reach them
+          return (
+            n.canonical_title.toLowerCase().includes(q) ||
+            n.aliases.some((a) => a.toLowerCase().includes(q)) ||
+            (n.author ?? "").toLowerCase().includes(q) ||
+            (n.notes ?? "").toLowerCase().includes(q)
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortKey === "updated") return (updatedAt.get(b.id) ?? 0) - (updatedAt.get(a.id) ?? 0);
+        if (sortKey === "title") return a.canonical_title.localeCompare(b.canonical_title);
+        if (sortKey === "chapter") return (b.chapter_sort ?? -1) - (a.chapter_sort ?? -1);
+        return 0;
+      });
+  }, [novels, search, statusFilter, authorFilter, tagFilter, sortKey]);
+
+  // One stable opener for every row and card: a fresh closure per render would defeat the
+  // memo on them, and typing in the search box would redraw the whole library
+  const openNovel = useCallback((novel: Novel) => setEditTarget(toEditData(novel)), []);
 
   useEffect(() => {
     // Initial load — a failure must not look like an empty library
@@ -1382,7 +1403,7 @@ export default function App() {
                   key={n.id} 
                   novel={n} 
                   onQuickUpdate={setQuickUpdateTarget} 
-                  onClick={() => setEditTarget(toEditData(n))}
+                  onOpen={openNovel}
                 />
               ))}
             </tbody>
@@ -1418,7 +1439,7 @@ export default function App() {
                 key={n.id} 
                 novel={n} 
                 onQuickUpdate={setQuickUpdateTarget} 
-                onClick={() => setEditTarget(toEditData(n))}
+                onOpen={openNovel}
                 />
             ))}
           </div>

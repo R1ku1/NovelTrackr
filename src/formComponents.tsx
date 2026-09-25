@@ -73,7 +73,19 @@ export function CoverImage({
     return placeholder ? <span style={coverPlaceholder}>No Cover</span> : null;
   }
 
-  return <img src={url} alt={alt} style={coverImg} onError={() => setBroken(true)} />;
+  // Lazy and async: the library renders one cover per row, and only the ones on screen
+  // need fetching — the rest are requested as they scroll into view, and the webview's
+  // own cache answers them on the next visit
+  return (
+    <img
+      src={url}
+      alt={alt}
+      style={coverImg}
+      loading="lazy"
+      decoding="async"
+      onError={() => setBroken(true)}
+    />
+  );
 }
 
 // ── Text Input ────────────────────────────────────────────────────────────────

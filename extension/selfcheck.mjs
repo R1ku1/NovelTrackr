@@ -2188,4 +2188,51 @@ function makeDom() {
 }
 
 
+// ── 43. content.js: an ordinary page stays cheap ──────────────────────────────
+{
+  // The scan runs on every page the user opens, and most of them are not a table of
+  // contents: the work is capped, and the rescan stops once the page stops changing
+  // instead of looking six times at a page that will never grow a chapter list.
+  const links = Array.from({ length: 3000 }, (_, i) => ({
+    tagName: "A",
+    textContent: `Article ${i}: something that is not a chapter`,
+    className: "",
+    getAttribute: (name) => (name === "href" ? `https://news.example/story-${i}` : null),
+    hasAttribute: () => false,
+  }));
+
+  const timers = [];
+  const chrome = makeChrome({});
+  const ctx = vm.createContext({
+    chrome,
+    document: {
+      title: "Some Homepage",
+      querySelector: () => null,
+      querySelectorAll: (sel) => (sel === "a" ? links : []),
+      addEventListener: () => {},
+    },
+    window: {
+      location: { href: "https://news.example/", hostname: "news.example", pathname: "/" },
+    },
+    setTimeout: (fn) => timers.push(fn) - 1,
+    clearTimeout: () => {},
+    console: silent,
+  });
+  vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
+
+  const scheduled = timers.length;
+  while (timers.length > 0) {
+    const fn = timers.shift();
+    if (fn) fn();
+  }
+
+  assert.equal(chrome.calls.messages.length, 0, "a page with no chapters must report nothing");
+  assert.ok(
+    scheduled <= 4,
+    `a page that never changes was looked at ${scheduled} times (the ceiling is ${6})`,
+  );
+  console.log("\u2713 content.js gives up on a page that never changes");
+}
+
+
 console.log("\nAll extension self-checks passed.");
