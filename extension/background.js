@@ -93,12 +93,9 @@ function sameCover(current, detected) {
   return String(current).trim() === String(detected).trim();
 }
 
-async function handleCoverDetection({ title, coverUrl, domain, tabId, author, tags, source }) {
+async function handleCoverDetection({ title, coverUrl, url, domain, tabId, author, tags, source }) {
   const running = await isAppRunning();
-  if (!running) {
-    console.log("[Noveltrackr] app not running, skipping cover");
-    return;
-  }
+  if (!running) return;
 
   // Only what the page actually offered — missing keys stay missing, so the
   // popup can tell "nothing detected" from an empty value
@@ -106,16 +103,15 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author, ta
 
   try {
     const novels = await getNovels();
-    console.log("[Noveltrackr] searching for:", title, "in", novels.length, "novels");
-    const matches = findMatches(title, novels);
-    console.log("[Noveltrackr] cover matches:", matches);
+    const linked = await novelLinkedTo(url, novels);
+    const matches = linked ? [linked] : findMatches(title, novels);
 
     if (matches.length === 0) {
       // Not in the library — offer to add it (cover included) instead
-      console.log("[Noveltrackr] novel not in library, offering to add:", title);
       await setCoverPending(tabId, {
         title,
         coverUrl,
+        url,
         domain,
         ...meta,
         type: "add",
@@ -129,14 +125,12 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author, ta
 
     // The page's image is the one this novel already has: nothing to offer. Anything
     // else the page carried — tags, a release — is reported on its own.
-    if (sameCover(matches[0].cover_url, coverUrl)) {
-      console.log("[Noveltrackr] cover is already the one in the library, not offering it");
-      return;
-    }
+    if (sameCover(matches[0].cover_url, coverUrl)) return;
 
     await setCoverPending(tabId, {
       title,
       coverUrl,
+      url,
       domain,
       ...meta,
       novelId: matches[0].id,
@@ -148,7 +142,6 @@ async function handleCoverDetection({ title, coverUrl, domain, tabId, author, ta
       tabId,
     });
 
-    console.log("[Noveltrackr] cover pending set for tab", tabId);
     chrome.action.setBadgeText({ text: "+", tabId });
     chrome.action.setBadgeBackgroundColor({ color: "#a78bfa", tabId });
   } catch (e) {
@@ -164,10 +157,7 @@ async function postVocabulary(tags) {
   if (!tags || tags.length === 0) return;
 
   const running = await isAppRunning();
-  if (!running) {
-    console.log("[Noveltrackr] app not running, skipping vocabulary");
-    return;
-  }
+  if (!running) return;
 
   try {
     const res = await fetch(`${API}/tag-vocabulary`, {
@@ -180,8 +170,6 @@ async function postVocabulary(tags) {
       console.error("[Noveltrackr] vocabulary write rejected:", await res.text());
       return;
     }
-
-    console.log("[Noveltrackr] tag vocabulary saved:", tags.length);
   } catch (e) {
     console.error("[Noveltrackr] postVocabulary failed:", e);
   }
@@ -194,18 +182,12 @@ async function handleNuSearch({ query, candidates, tabId }) {
   if (!query || !candidates || candidates.length === 0 || !tabId) return;
 
   const running = await isAppRunning();
-  if (!running) {
-    console.log("[Noveltrackr] app not running, skipping NU search");
-    return;
-  }
+  if (!running) return;
 
   try {
     const novels = await getNovels();
     const matches = findMatches(query, novels);
-    if (matches.length === 0) {
-      console.log("[Noveltrackr] NU search for a novel we don't have, ignoring:", query);
-      return;
-    }
+    if (matches.length === 0) return;
 
     await setNuPending(tabId, {
       novelId: matches[0].id,
@@ -217,7 +199,6 @@ async function handleNuSearch({ query, candidates, tabId }) {
 
     chrome.action.setBadgeText({ text: "?", tabId });
     chrome.action.setBadgeBackgroundColor({ color: "#60a5fa", tabId });
-    console.log("[Noveltrackr] NU candidates ready for tab", tabId);
   } catch (e) {
     console.error("[Noveltrackr] handleNuSearch failed:", e);
   }
@@ -254,22 +235,20 @@ async function handleMetadataDetection({ title, author, tags, source, url, tabId
   if (!author && !hasTags && Object.keys(observed).length === 0) return;
 
   const running = await isAppRunning();
-  if (!running) {
-    console.log("[Noveltrackr] app not running, skipping metadata");
-    return;
-  }
+  if (!running) return;
 
   try {
     const novels = await getNovels();
     const matches = findMatches(title, novels);
-    // A series the user picked in the NU flow beats a fuzzy title match
+    // The series the user picked in the NU flow, then a page linked by hand by its
+    // address, then a fuzzy title match
     const confirmed = await getNuSeriesNovel(url);
-    const novelId = confirmed ?? matches[0]?.id ?? null;
+    const novelId = confirmed
+      ?? (await novelLinkedTo(url, novels))?.id
+      ?? matches[0]?.id
+      ?? null;
 
-    if (!novelId) {
-      console.log("[Noveltrackr] metadata for unknown novel, ignoring:", title);
-      return;
-    }
+    if (!novelId) return;
 
     const res = await fetch(`${API}/metadata`, {
       method: "POST",
@@ -340,7 +319,6 @@ async function useNuRelease({ title, latest_chapter, tabId }) {
     if (tabId) await clearNuRelease(tabId);
 
     const novelTitle = matches[0]?.canonical_title ?? title;
-    console.log("[Noveltrackr] NU release confirmed as a lower bound:", { novel: novelTitle, latest_chapter });
     return { ok: true, title: novelTitle };
   } catch (e) {
     return { error: e.message };
@@ -423,6 +401,187 @@ async function saveLocalMapping(domain, detectedTitle, novelId) {
   await chrome.storage.local.set({ [key]: novelId });
 }
 
+// ── The page's address as a key ───────────────────────────────────────────────
+// A site that draws its novel name in JavaScript leaves nothing to match on — but its
+// addresses still name the novel, so a page the user identified by hand is remembered
+// against the address with the chapter cut out of it. Both ends of that cut matter:
+// cut too little and every novel on the site shares one link, cut too much and the
+// next chapter of the same novel misses it and the user is asked all over again.
+//
+// The cut is the first path segment that names a chapter ("chapter-12.html", a bare
+// "/chapter/" whose id follows), or a last segment that is nothing but the chapter
+// number the page reported. Query parameters holding that number go with it. A URL
+// that keeps nothing names only the site, so it gets no link at all rather than a
+// link that would claim every novel on it.
+//
+// ponytail: the fragment is dropped whole. A reader that keeps its route in the hash
+// ("/reader#/novel/x/chapter/5") is scoped to "/reader"; the popup names the address
+// it saved, and the upgrade is to run these same segment rules over the hash.
+const SCOPE_PREFIX = "url:";
+const CHAPTER_WORD = /^(?:chapter|chap|ch|episode|ep)s?$/i;
+const CHAPTER_NAMED = /(?:^|[^a-z])(?:chapter|chap|ch|episode|ep)s?[^a-z]*\d/i;
+const CHAPTER_ALONE = /^v?\d+(?:[.\-_]\w+)?$/;
+
+/// Does the text carry this number as a number of its own ("12", "chapter-12") and not
+/// as part of a longer one ("112", "12.5")?
+function holdsNumber(text, number) {
+  const escaped = String(number).replace(/\./g, "\\.");
+  return new RegExp(`(?:^|[^0-9.])${escaped}(?![0-9.])`).test(String(text || ""));
+}
+
+function urlScope(href, chapter) {
+  let url;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+
+  const number = String(chapter ?? "").match(/\d+(?:\.\d+)?/)?.[0] ?? null;
+  const segments = url.pathname.split("/").filter(Boolean);
+
+  let cut = segments.findIndex((segment) => CHAPTER_NAMED.test(segment));
+  if (cut === -1) {
+    // A chapter word on its own: the number in the segment after it is the chapter's
+    // id rather than its number (Royal Road writes both)
+    cut = segments.findIndex(
+      (segment, i) => CHAPTER_WORD.test(segment) && i < segments.length - 1,
+    );
+  }
+  if (cut === -1 && number) {
+    const last = segments.at(-1);
+    if (last && CHAPTER_ALONE.test(last) && holdsNumber(last, number)) cut = segments.length - 1;
+  }
+
+  const path = segments.slice(0, cut === -1 ? segments.length : cut).join("/");
+  if (!path) return null;
+
+  const kept = [...url.searchParams]
+    .filter(([, value]) => !(number && holdsNumber(value, number)))
+    .map(([name, value]) => `${name}=${value}`)
+    .join("&");
+
+  return `/${path}${kept ? `?${kept}` : ""}`;
+}
+
+/// The local key for an address — the domain is part of it, because the same path on
+/// two sites is two different novels
+function scopeKey(domain, scope) {
+  return `scope:${domain}:${scope}`;
+}
+
+/// The host of an address, spelled the way the content script spells it
+function hostOf(href) {
+  try {
+    return new URL(href).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+/// The novel a page is already linked to by its address, if any — see urlScope. Everything
+/// that identifies a page asks this first, because a hand-made link is the user's word and
+/// the page's title is exactly what could not be trusted when it was made. An index page
+/// carries no chapter, and urlScope's cut for a chapter page lands on the same address, so
+/// a link made on either one answers for both.
+async function novelLinkedTo(url, novels) {
+  const host = hostOf(url);
+  const scope = urlScope(url, null);
+  if (!host || !scope) return null;
+
+  const novelId = await getScopeMapping(host, scope);
+  return novels.find((novel) => novel.id === novelId) ?? null;
+}
+
+async function getScopeMapping(domain, scope) {
+  if (!scope) return null;
+  const key = scopeKey(domain, scope);
+  const result = await chrome.storage.local.get(key);
+  return result[key] || null;
+}
+
+/// Remembers a link against the address. The app's row is the durable record; the local
+/// key is what lets the next chapter resolve after one visit.
+async function saveScopeMapping(domain, scope, novelId) {
+  await chrome.storage.local.set({ [scopeKey(domain, scope)]: novelId });
+
+  try {
+    const res = await fetch(`${API}/mappings`, {
+      method: "POST",
+      headers: API_HEADERS,
+      body: JSON.stringify({
+        domain,
+        detected_title: `${SCOPE_PREFIX}${scope}`,
+        novel_id: novelId,
+      }),
+    });
+    if (!res.ok) console.error("[Noveltrackr] address link rejected:", await res.text());
+  } catch (e) {
+    console.error("[Noveltrackr] could not record the address link:", e.message);
+  }
+}
+
+// ── Novels linked on a site ───────────────────────────────────────────────────
+// What the search panel opens with, so a second novel on a site is a click rather than
+// a hunt. Only ever filled by a pick the user made: the page's own guess must not seed
+// it, or the list would offer whatever was mis-detected last.
+const RECENT_LIMIT = 5;
+
+async function rememberRecent(domain, novelId) {
+  const key = `recent:${domain}`;
+  const result = await chrome.storage.local.get(key);
+  const ids = Array.isArray(result[key]) ? result[key] : [];
+
+  await chrome.storage.local.set({
+    [key]: [novelId, ...ids.filter((id) => id !== novelId)].slice(0, RECENT_LIMIT),
+  });
+}
+
+// ── Linking a page by hand ────────────────────────────────────────────────────
+// The page's title told us nothing — no match, and often no name at all — so the user
+// says which novel it is. The chapter goes in either way, because that write is the one
+// that must not be lost. The link itself is remembered against the address only, never
+// against the title that failed: that is what keeps one site's furniture from claiming
+// a whole library.
+async function linkPage({ novelId, chapter, url, domain, tabId, latest }) {
+  const scope = urlScope(url, chapter);
+  const result = { ok: true, scoped: Boolean(scope) };
+
+  if (chapter) {
+    try {
+      const res = await fetch(`${API}/progress`, {
+        method: "POST",
+        headers: API_HEADERS,
+        body: JSON.stringify({
+          novel_id: novelId,
+          chapter_raw: chapter,
+          source_url: url,
+          domain,
+          ...latestFields(latest),
+        }),
+      });
+      result.saved = res.ok;
+    } catch {
+      result.saved = false;
+    }
+  }
+
+  if (scope) {
+    await saveScopeMapping(domain, scope, novelId);
+    await rememberRecent(domain, novelId);
+    result.scope = scope;
+  }
+
+  // The offer this page raised has been answered by hand, so it goes: the novel it was
+  // going to add is already in the library
+  if (tabId) {
+    await clearPending(tabId);
+    await clearCoverPending(tabId);
+  }
+
+  return result;
+}
+
 // ── Latest chapter (best effort) ──────────────────────────────────────────────
 // The page said how far the site has got, if it said anything at all. A missing
 // field means "no observation" to the app, so a page without evidence contributes
@@ -450,7 +609,7 @@ async function reportLatest(novelId, observed) {
       body: JSON.stringify({ novel_id: novelId, ...observed }),
     });
   } catch (e) {
-    console.log("[Noveltrackr] latest chapter not reported:", e.message);
+    console.error("[Noveltrackr] latest chapter not reported:", e.message);
   }
 }
 
@@ -466,7 +625,11 @@ async function handleDetection({ title, chapter, url, domain, tabId, latest }) {
     return;
   }
 
-  const knownNovelId = await getKnownMapping(domain, title);
+  // The address first: a page the user linked by hand is linked on purpose, and its
+  // title is exactly what could not be trusted to find it in the first place
+  const scope = urlScope(url, chapter);
+  const knownNovelId = (scope ? await getScopeMapping(domain, scope) : null)
+    ?? await getKnownMapping(domain, title);
 
   if (knownNovelId) {
     await setPending(
@@ -493,8 +656,6 @@ async function handleDetection({ title, chapter, url, domain, tabId, latest }) {
 
 // ── Message listener ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("[Noveltrackr] message received:", message.type);
-
   if (message.type === "CHAPTER_DETECTED") {
     handleDetection({
       ...message.payload,
@@ -510,7 +671,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const tabId = tabs[0]?.id;
       if (!tabId) { sendResponse(null); return; }
       const data = await getPending(tabId);
-      console.log("[Noveltrackr] GET_PENDING for tab", tabId, ":", data);
       sendResponse(data);
     });
     return true; // async
@@ -518,6 +678,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "CONFIRM_UPDATE") {
     const { novelId, chapter, url, domain, detectedTitle, tabId, latest } = message.payload;
+    const scope = urlScope(url, chapter);
 
     fetch(`${API}/progress`, {
       method: "POST",
@@ -535,28 +696,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (!res.ok || data.error) {
         // Stale mapping — clear it
-        const key = `mapping:${domain}:${normalise(detectedTitle)}`;
+        const key = scope ? scopeKey(domain, scope) : `mapping:${domain}:${normalise(detectedTitle)}`;
         await chrome.storage.local.remove(key);
         if (tabId) await clearPending(tabId);
         sendResponse({ error: "stale_mapping" });
         return;
       }
 
-      await saveLocalMapping(domain, detectedTitle, novelId);
-      await fetch(`${API}/mappings`, {
-        method: "POST",
-        headers: API_HEADERS,
-        body: JSON.stringify({
-          domain,
-          detected_title: detectedTitle,
-          novel_id: novelId,
-        }),
-      });
+      // A page whose address names its novel is linked by address; a title is what is
+      // left when the address says nothing (see urlScope)
+      if (scope) {
+        await saveScopeMapping(domain, scope, novelId);
+      } else {
+        await saveLocalMapping(domain, detectedTitle, novelId);
+        await fetch(`${API}/mappings`, {
+          method: "POST",
+          headers: API_HEADERS,
+          body: JSON.stringify({
+            domain,
+            detected_title: detectedTitle,
+            novel_id: novelId,
+          }),
+        });
+      }
+      await rememberRecent(domain, novelId);
       if (tabId) await clearPending(tabId);
       sendResponse({ ok: true });
     })
     .catch(e => sendResponse({ error: e.message }));
 
+    return true; // async
+  }
+
+  // The user found the novel by name because the page's own title told us nothing
+  if (message.type === "LINK_PAGE") {
+    linkPage(message.payload)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ error: e.message }));
     return true; // async
   }
 

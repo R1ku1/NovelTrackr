@@ -1,5 +1,4 @@
 // Runs on every page — detects novel/chapter and messages the background worker
-console.log("[Noveltrackr] content script loaded on:", window.location.href);
 
 
 function extractGeneric() {
@@ -360,11 +359,7 @@ function extractCoverImage() {
   for (const selector of selectors) {
     const el = document.querySelector(selector);
     if (el?.src && el.src.startsWith("http")) {
-      if (isPlaceholderCover(el.src)) {
-        console.log("[Noveltrackr] ignoring a placeholder cover:", el.src);
-        continue;
-      }
-      console.log("[Noveltrackr] cover found via selector:", selector, el.src);
+      if (isPlaceholderCover(el.src)) continue;
       return el.src;
     }
   }
@@ -386,7 +381,6 @@ function extractCoverImage() {
     const match = style.match(/url\(['"]?(https?[^'")\s]+)['"]?\)/);
     if (match) {
       if (isPlaceholderCover(match[1])) continue;
-      console.log("[Noveltrackr] cover found via background-image:", selector, match[1]);
       return match[1];
     }
   }
@@ -399,10 +393,7 @@ function extractCoverImage() {
     .filter(img => img.naturalHeight > img.naturalWidth)
     .sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
 
-  if (images[0]) {
-    console.log("[Noveltrackr] cover found via img fallback:", images[0].src);
-    return images[0].src;
-  }
+  if (images[0]) return images[0].src;
 
   return null;
 }
@@ -420,28 +411,23 @@ function scheduleCoverDetection(indexTitle, meta = {}) {
     coverTimer = null;
 
     // The site navigated in-page while we waited; the title above is stale now
-    if (window.location.href !== scheduledHref) {
-      console.log("[Noveltrackr] page changed before cover extraction, skipping");
-      return;
-    }
+    if (window.location.href !== scheduledHref) return;
 
     const coverUrl = extractCoverImage();
-    if (!coverUrl) {
-      console.log("[Noveltrackr] no cover image found on index page");
-      return;
-    }
-
-    console.log("[Noveltrackr] sending COVER_DETECTED:", indexTitle, coverUrl);
+    if (!coverUrl) return;
 
     chrome.runtime.sendMessage({
       type: "COVER_DETECTED",
       payload: {
         title: indexTitle,
         coverUrl,
+        // The page's address, so a novel added from here — or linked by hand to one
+        // already in the library — can be remembered against it
+        url: window.location.href,
         domain: hostName(),
         ...meta,
       }
-    }).catch((e) => console.log("[Noveltrackr] cover message failed:", e));
+    }).catch((e) => console.error("[Noveltrackr] cover message failed:", e));
   }, 1000);
 }
 
@@ -673,7 +659,6 @@ function watchForLateLatest(current, report, initial) {
 
     const latest = detectLatestChapters(current);
     if (isBetterLatest(latest, best)) {
-      console.log("[Noveltrackr] chapter information appeared or improved:", latest);
       best = latest;
       report(latest);
     }
@@ -693,8 +678,6 @@ function watchForLateLatest(current, report, initial) {
     tries += 1;
     if (tries < LATE_RESCAN_TRIES) {
       setTimeout(look, LATE_RESCAN_MS);
-    } else if (!best) {
-      console.log("[Noveltrackr] no chapter information on this page after", tries, "looks");
     }
   };
 
@@ -743,14 +726,9 @@ function nuRelease() {
 }
 
 function run() {
-  console.log("[Noveltrackr] run() called on:", window.location.href);
-
   // A blocked page can't be captured from, and searching again makes it worse
   if (onNovelUpdates() && blockedByCloudflare()) {
     clearSearchMarker();
-    console.log(
-      "[Noveltrackr] NovelUpdates is blocking this IP (Cloudflare) — panels stay empty until the block lifts"
-    );
     return;
   }
 
@@ -759,25 +737,19 @@ function run() {
   const pending = onNovelUpdates() ? pendingSearchQuery() : null;
   if (pending) {
     clearSearchMarker();
-
-    if (offerSearch(pending)) {
-      console.log("[Noveltrackr] NU search for:", pending, "— search box filled, press Enter to run it");
-    } else {
-      console.log("[Noveltrackr] NU search for:", pending, "— no search box found, offering the search link");
-    }
+    offerSearch(pending);
     return;
   }
 
   // NU's Series Finder is a bulk source of canonical tag names (plan §4.2.2)
   if (isNuPage(NU_FINDER_PATH)) {
     const tags = firstTags(NU_FINDER_SELECTORS, MAX_VOCABULARY);
-    console.log("[Noveltrackr] Series Finder — tags found:", tags.length);
 
     if (tags.length > 0) {
       chrome.runtime.sendMessage({
         type: "VOCABULARY_DETECTED",
         payload: { tags },
-      }).catch((e) => console.log("[Noveltrackr] vocabulary message failed:", e));
+      }).catch((e) => console.error("[Noveltrackr] vocabulary message failed:", e));
     }
     return;
   }
@@ -786,13 +758,12 @@ function run() {
   if (onNovelUpdates() && nuSearchQuery()) {
     const query = nuSearchQuery();
     const candidates = extractCandidates();
-    console.log("[Noveltrackr] NU search page:", query, "— candidates:", candidates.length);
 
     if (candidates.length > 0) {
       chrome.runtime.sendMessage({
         type: "NU_SEARCH_DETECTED",
         payload: { query, candidates },
-      }).catch((e) => console.log("[Noveltrackr] NU search message failed:", e));
+      }).catch((e) => console.error("[Noveltrackr] NU search message failed:", e));
       return;
     }
   }
@@ -803,7 +774,6 @@ function run() {
   if (result && result.chapter && result.title && /\d/.test(result.chapter)) {
     const current = chapterNumber(result.chapter);
     const latest = detectLatestChapters(current);
-    console.log("[Noveltrackr] chapter page:", result, "latest:", latest);
 
     const report = (observed) => {
       chrome.runtime.sendMessage({
@@ -815,7 +785,7 @@ function run() {
           domain: hostName(),
           latest: observed,
         }
-      }).catch((e) => console.log("[Noveltrackr] sendMessage failed:", e));
+      }).catch((e) => console.error("[Noveltrackr] chapter message failed:", e));
     };
 
     report(latest);
@@ -853,12 +823,7 @@ function run() {
       : raw.trim();
   }
 
-  if (!indexTitle) {
-    console.log("[Noveltrackr] index page but could not extract title");
-    return;
-  }
-
-  console.log("[Noveltrackr] index page, title:", indexTitle);
+  if (!indexTitle) return;
 
   // Report what the page shows. The app only accepts this for a novel it
   // already tracks, so no badge or prompt is involved (plan §4.1).
@@ -878,26 +843,19 @@ function run() {
     chrome.runtime.sendMessage({
       type: "METADATA_DETECTED",
       payload: { title: indexTitle, author, tags, source, latest: observed },
-    }).catch((e) => console.log("[Noveltrackr] metadata message failed:", e));
+    }).catch((e) => console.error("[Noveltrackr] metadata message failed:", e));
   };
 
-  if (latest) {
-    console.log("[Noveltrackr] latest chapter on this page:", latest);
-  } else if (onNu) {
-    // NU is a database of other sites' releases, and every row is numbered by the
-    // group that released it, so its number is offered to the user rather than
-    // written (see nuRelease) — and never guessed at when the table isn't there.
+  // NU is a database of other sites' releases, and every row is numbered by the group
+  // that released it, so its number is offered to the user rather than written (see
+  // nuRelease) — and never guessed at when the table isn't there.
+  if (!latest && onNu) {
     const release = nuRelease();
     if (release) {
-      console.log("[Noveltrackr] NovelUpdates newest release:", release.group, release.token, "— offered in the popup, not written");
       chrome.runtime
         .sendMessage({ type: "NU_RELEASE_DETECTED", payload: { title: indexTitle, ...release } })
-        .catch((e) => console.log("[Noveltrackr] NU release message failed:", e));
-    } else {
-      console.log("[Noveltrackr] NovelUpdates shows no release table on this page — leaving the count unknown");
+        .catch((e) => console.error("[Noveltrackr] NU release message failed:", e));
     }
-  } else {
-    console.log("[Noveltrackr] no chapter list on this page yet — looking again while it settles");
   }
 
   report(latest);

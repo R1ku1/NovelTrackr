@@ -301,6 +301,7 @@ function renderKnown(body, detection) {
     <div class="detected-chapter">${esc(detection.chapter)}</div>
     <button class="btn-update" id="btnUpdate">Update Progress</button>
     <button class="btn-ignore" id="btnIgnore">Ignore</button>
+    <div class="not-in-library" id="btnSearch" style="margin-top:12px">Not the right novel — pick another</div>
   `;
 
 document.getElementById("btnUpdate").onclick = async () => {
@@ -327,10 +328,161 @@ document.getElementById("btnUpdate").onclick = async () => {
     setTimeout(window.close, 800);
   };
 
+  document.getElementById("btnSearch").onclick = () => {
+    renderLibrarySearch(body, detection, () => renderKnown(body, detection));
+  };
+
   document.getElementById("btnIgnore").onclick = () => {
     chrome.runtime.sendMessage({ type: "CLEAR_PENDING" });
     window.close();
   };
+}
+
+// ── Finding the novel by name ─────────────────────────────────────────────────
+// For the pages this exists for: a site whose novel name never reaches the DOM, so the
+// popup has nothing to match and "Add to Library" would file the page's furniture as a
+// novel. The user says which novel it is instead, and — because the page's address is
+// what a hand-made link is remembered against — every later chapter of it resolves on
+// its own (see background.js urlScope).
+//
+// The whole view is re-rendered per keystroke so every row is markup the popup can
+// wire, which means the input is new each time: its focus and caret are handed back, and
+// a keystroke mid-composition (IME) is left alone rather than thrown away.
+const MAX_SEARCH_RESULTS = 8;
+
+let libraryCache = null;
+
+async function getLibrary() {
+  if (libraryCache) return libraryCache;
+  try {
+    const res = await fetch(`${API}/novels`, { headers: API_HEADERS });
+    libraryCache = res.ok ? await res.json() : [];
+  } catch {
+    libraryCache = [];
+  }
+  return libraryCache;
+}
+
+// The novels already linked from this site, newest first: the panel's opening list, so
+// the second novel on a site is a click rather than a hunt. Ids only — the names come
+// from the library that was just fetched, so a novel since deleted drops out.
+async function recentOn(domain, library) {
+  const key = `recent:${domain}`;
+  const result = await chrome.storage.local.get(key);
+  const ids = Array.isArray(result[key]) ? result[key] : [];
+  return ids.map((id) => library.find((novel) => novel.id === id)).filter(Boolean);
+}
+
+function libraryRow(novel) {
+  return `
+    <div class="candidate" id="result-${novel.id}">
+      <div class="candidate-title">${esc(novel.canonical_title)}</div>
+      ${novel.current_chapter_raw
+        ? `<div class="candidate-chapter">${esc(novel.current_chapter_raw)}</div>`
+        : ""}
+    </div>
+  `;
+}
+
+// context — the page being linked: { title, chapter, url, domain, tabId, latest }
+// back    — re-renders what the popup was showing before
+async function renderLibrarySearch(body, context, back, query = "") {
+  const library = await getLibrary();
+  const typed = query.trim().toLowerCase();
+
+  const matches = typed
+    ? library.filter((novel) =>
+        [novel.canonical_title, ...(novel.aliases || [])]
+          .join(" ")
+          .toLowerCase()
+          .includes(typed),
+      )
+    : [];
+
+  const shown = typed ? matches.slice(0, MAX_SEARCH_RESULTS) : await recentOn(context.domain, library);
+
+  const label = !typed
+    ? shown.length ? "Recently linked on this site" : ""
+    : !matches.length
+      ? "Nothing in your library matches that"
+      : `${matches.length} match${matches.length === 1 ? "" : "es"}${
+          matches.length > shown.length ? ` — showing the first ${shown.length}` : ""
+        }`;
+
+  // Nothing recent and nothing typed: the field alone says what to do, so the empty
+  // card (and its divider) is left out
+  const listed = label || shown.length;
+
+  const link = async (novel) => {
+    const result = await chrome.runtime.sendMessage({
+      type: "LINK_PAGE",
+      payload: {
+        novelId: novel.id,
+        chapter: context.chapter || "",
+        url: context.url,
+        domain: context.domain,
+        tabId: context.tabId,
+        latest: context.latest,
+      },
+    });
+
+    body.innerHTML = !result?.ok
+      ? `<div class="state-offline">Couldn't link this page. Is the app still running?</div>`
+      : `
+        <div class="success">✓ Linked to ${esc(novel.canonical_title)}</div>
+        ${result.saved === false
+          ? `<div class="state-offline">Your chapter couldn't be saved — reopen this page to retry.</div>`
+          : ""}
+        ${result.scoped
+          ? `<div class="candidate-label" style="color:#555">Chapters under ${esc(context.domain)}${esc(result.scope)} are filed here from now on.</div>`
+          : `<div class="state-offline">This page's address doesn't name one novel, so you'll have to pick it again next time.</div>`}
+      `;
+
+    if (result?.ok) setTimeout(window.close, 1800);
+  };
+
+  renderPage(body, [
+    headerSection("Link this page", context.title, context.chapter),
+    {
+      id: null,
+      html: `<input class="search-input" id="searchInput" type="text" placeholder="Search your library" />`,
+      wire: () => {
+        const input = document.getElementById("searchInput");
+        if (!input) return;
+
+        input.value = query;
+        input.oninput = (event) => {
+          if (event?.isComposing) return;
+          renderLibrarySearch(body, context, back, input.value || "");
+        };
+
+        // New element, same typing: focus and caret go back where they were
+        input.focus?.();
+        input.setSelectionRange?.(input.value.length, input.value.length);
+      },
+    },
+    listed ? {
+      id: "results",
+      html: `
+        ${label ? `<div class="candidate-label" ${shown.length ? "" : `style="color:#444"`}>${esc(label)}</div>` : ""}
+        ${shown.map(libraryRow).join("")}
+      `,
+      wire: () => {
+        for (const novel of shown) {
+          const row = document.getElementById(`result-${novel.id}`);
+          if (row) row.onclick = () => link(novel);
+        }
+      },
+    } : null,
+    {
+      id: "back",
+      html: `<div class="not-in-library" id="btnBack">Back</div>`,
+      wire: () => {
+        const button = document.getElementById("btnBack");
+        if (button) button.onclick = back;
+      },
+    },
+  ].filter(Boolean));
 }
 
 function mappingKey(domain, title) {
@@ -379,7 +531,6 @@ async function saveProgress(novelId, detection) {
 
 function renderUnknown(body, detection) {
   const matches = detection.matches || [];
-  console.log("[Noveltrackr] renderUnknown called, matches:", matches.length, matches);
 
   if (matches.length === 0) {
     body.innerHTML = `
@@ -387,10 +538,13 @@ function renderUnknown(body, detection) {
       <div class="detected-title">${esc(detection.title)}</div>
       <div class="detected-chapter">${esc(detection.chapter)}</div>
       <div class="candidate-label" style="margin-top:12px; color: #555">
-        Not found in your library.
+        Not found in your library. Pick it by name instead.
       </div>
       <button class="btn-update" id="btnAdd" style="margin-top:12px">
         Add to Library
+      </button>
+      <button class="btn-ignore" id="btnSearch" style="margin-top:8px">
+        Search my library
       </button>
       <button class="btn-ignore" id="btnIgnore" style="margin-top:8px">
         Ignore
@@ -439,6 +593,10 @@ function renderUnknown(body, detection) {
       }
     };
 
+    document.getElementById("btnSearch").onclick = () => {
+      renderLibrarySearch(body, detection, () => renderUnknown(body, detection));
+    };
+
     document.getElementById("btnIgnore").onclick = () => {
       chrome.runtime.sendMessage({ type: "CLEAR_PENDING" });
       window.close();
@@ -462,8 +620,13 @@ function renderUnknown(body, detection) {
     <div class="detected-chapter">${esc(detection.chapter)}</div>
     <div class="candidate-label" style="margin-top:14px">Which novel is this?</div>
     ${candidatesHtml}
+    <div class="not-in-library" id="btnSearch" style="margin-top:10px">None of these — search my library</div>
     <div class="not-in-library" id="btnIgnore">Not in my library — ignore</div>
   `;
+
+  document.getElementById("btnSearch").onclick = () => {
+    renderLibrarySearch(body, detection, () => renderUnknown(body, detection));
+  };
 
   document.querySelectorAll(".candidate").forEach(el => {
     el.onclick = async () => {
@@ -596,8 +759,13 @@ function renderAddPrompt(body, cover) {
       Not in your library.${carried.length ? ` Its ${carried.join(" and ")} come with it.` : ""}
     </div>
     <button class="btn-update" id="btnAdd" style="margin-top:12px">Add to Library</button>
+    <button class="btn-ignore" id="btnSearch" style="margin-top:8px">Search my library</button>
     <button class="btn-ignore" id="btnDismissCover" style="margin-top:8px">Ignore</button>
   `;
+
+  document.getElementById("btnSearch").onclick = () => {
+    renderLibrarySearch(body, cover, () => renderAddPrompt(body, cover));
+  };
 
   document.getElementById("btnAdd").onclick = async () => {
     try {

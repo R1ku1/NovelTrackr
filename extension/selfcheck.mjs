@@ -13,7 +13,7 @@ const read = (f) => readFileSync(path.join(dir, f), "utf8");
 
 const silent = { log() {}, error() {}, warn() {} };
 
-function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending = null, nuSaved = null, nuRelease = null } = {}) {
+function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending = null, nuSaved = null, nuRelease = null, linkResult = null } = {}) {
   const calls = { badge: [], messages: [], tabs: [] };
   const listeners = {};
   return {
@@ -34,6 +34,7 @@ function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending =
         if (msg.type === "GET_NU_PENDING") return nuPending;
         if (msg.type === "GET_NU_SAVED") return nuSaved;
         if (msg.type === "GET_NU_RELEASE") return nuRelease;
+        if (msg.type === "LINK_PAGE") return linkResult ?? { ok: true };
         return { ok: true };
       },
     },
@@ -168,6 +169,9 @@ function makeDom() {
   const detection = {
     title: "Editor\u2019s Survival Guide",
     coverUrl: "https://cdn.novelupdates.com/images/2026/01/Editors-Survival-Guide.jpg",
+    // The page's own address rides along from now on: it is what a hand-made link is
+    // remembered against when the title matches nothing
+    url: "https://www.novelupdates.com/series/editors-survival-guide/",
     domain: "novelupdates.com",
     tabId: 7,
   };
@@ -1932,9 +1936,16 @@ function makeDom() {
 // ── 37. content.js: a placeholder image is never offered as a cover ───────────
 {
   // NovelUpdates answers "no cover" with /img/noimagefound.jpg, and that URL is
-  // exactly what the popup offered to save — a broken cover in the library.
+  // exactly what the popup offered to save — a broken cover in the library. Passing it
+  // over is only half the job: the scan keeps looking, so the real image beside it is
+  // still found.
   const placeholder = { src: "https://www.novelupdates.com/img/noimagefound.jpg" };
-  const logs = [];
+  const real = {
+    src: "https://cdn.novelupdates.com/images/cover.jpg",
+    complete: true,
+    naturalWidth: 400,
+    naturalHeight: 600,
+  };
   const timers = [];
   const chrome = makeChrome({});
 
@@ -1943,7 +1954,7 @@ function makeDom() {
     document: {
       title: "No Cover Novel - Novel Updates",
       querySelector: (sel) => (sel.includes("serieseditimg") ? placeholder : null),
-      querySelectorAll: (sel) => (sel === "img" ? [placeholder] : []),
+      querySelectorAll: (sel) => (sel === "img" ? [placeholder, real] : []),
       addEventListener: () => {},
     },
     window: {
@@ -1955,7 +1966,7 @@ function makeDom() {
     },
     setTimeout: (fn) => timers.push(fn) - 1,
     clearTimeout: () => {},
-    console: { log: (...a) => logs.push(a.join(" ")), error: () => {}, warn: () => {} },
+    console: silent,
   });
   vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
 
@@ -1964,14 +1975,12 @@ function makeDom() {
     if (fn) fn();
   }
 
+  const offers = chrome.calls.messages.filter((m) => m.type === "COVER_DETECTED");
+  assert.equal(offers.length, 1, "a placeholder must not be offered as a cover");
   assert.equal(
-    chrome.calls.messages.filter((m) => m.type === "COVER_DETECTED").length,
-    0,
-    "a placeholder must not be offered as a cover",
-  );
-  assert.ok(
-    logs.some((line) => line.includes("placeholder")),
-    "and the console must say why the page's image was passed over",
+    offers[0].payload.coverUrl,
+    real.src,
+    "and the page's real image must still be found after it",
   );
   console.log("\u2713 content.js ignores a site's \"no cover\" placeholder");
 }
@@ -2232,6 +2241,292 @@ function makeDom() {
     `a page that never changes was looked at ${scheduled} times (the ceiling is ${6})`,
   );
   console.log("\u2713 content.js gives up on a page that never changes");
+}
+
+
+// ── 44. background.js: a hand-made link is remembered against the address ─────
+{
+  // A site that draws its novel name in JavaScript leaves the popup with nothing to
+  // match. The user picks the novel by name instead, and the link has to survive the
+  // next chapter — which means it is keyed on the page's address, with the chapter cut
+  // out of it, and never on the title that failed.
+  const storage = {};
+  const chrome = makeChrome(storage);
+  const novels = [{ id: 5, canonical_title: "Shadow Slave", aliases: [], current_chapter_raw: "Chapter 41" }];
+  const { calls, fetchStub } = makeFetch(novels);
+  const ctx = vm.createContext({ chrome, fetch: fetchStub, URL, AbortSignal, console: silent, setTimeout, Promise });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+
+  const cases = [
+    ["https://www.royalroad.com/fiction/21220/shadow-slave/chapter/301778/12-a-beginning", "Chapter 12", "/fiction/21220/shadow-slave"],
+    ["https://novelfire.net/novel/shadow-slave/chapter-12.html", "Chapter 12", "/novel/shadow-slave"],
+    ["https://example.com/book/42/12", "Chapter 12", "/book/42"],
+    ["https://example.com/reader?novel=shadow-slave&ch=12", "Chapter 12", "/reader?novel=shadow-slave"],
+    ["https://example.com/series/shadow-slave/", null, "/series/shadow-slave"],
+    ["https://example.com/one/two", "Chapter 3", "/one/two"],
+    // Nothing but the site, and nothing but the chapter: no link at all beats one that
+    // would claim every novel the site hosts
+    ["https://example.com/", "Chapter 3", null],
+    ["https://example.com/1234", "Chapter 1234", null],
+  ];
+  for (const [href, chapter, expected] of cases) {
+    assert.equal(ctx.urlScope(href, chapter), expected, `urlScope(${href}) must be ${expected}`);
+  }
+  console.log("\u2713 background.js cuts the chapter out of a page's address");
+
+  const url = "https://example-reader.com/novel/shadow-slave/chapter-12";
+  await ctx.handleDetection({
+    title: "Read Online Free",
+    chapter: "Chapter 12",
+    url,
+    domain: "example-reader.com",
+    tabId: 7,
+    latest: null,
+  });
+
+  assert.equal(storage.pending_7.matches.length, 0, "the page's own title must match nothing");
+  assert.equal(storage.pending_7.known, false);
+
+  const linked = await ctx.linkPage({
+    novelId: 5,
+    chapter: "Chapter 12",
+    url,
+    domain: "example-reader.com",
+    tabId: 7,
+    latest: { latest_chapter: 120, confidence: "lower_bound" },
+  });
+
+  assert.deepEqual({ ...linked }, { ok: true, scoped: true, saved: true, scope: "/novel/shadow-slave" });
+  assert.deepEqual(calls.find((c) => c.url.endsWith("/mappings"))?.body, {
+    domain: "example-reader.com",
+    detected_title: "url:/novel/shadow-slave",
+    novel_id: 5,
+  });
+  assert.equal(
+    storage["scope:example-reader.com:/novel/shadow-slave"],
+    5,
+    "the address must be cached locally, or the next chapter asks again",
+  );
+  assert.equal(calls.find((c) => c.url.endsWith("/progress"))?.body.chapter_raw, "Chapter 12");
+  assert.equal(calls.find((c) => c.url.endsWith("/progress"))?.body.latest_chapter, 120, "and the count rides along");
+  assert.deepEqual(
+    [...storage["recent:example-reader.com"]],
+    [5],
+    "the site's shortlist starts with this novel",
+  );
+  assert.equal(storage.pending_7, undefined, "the prompt goes once the page is linked");
+  assert.ok(
+    !Object.keys(storage).some((k) => k.startsWith("mapping:")),
+    "the title that failed must never become a key — it would claim every page that reads the same way",
+  );
+  assertAuthed(calls, "background.js (hand-made link)");
+
+  // The next chapter, with another unfindable title: nothing to pick
+  await ctx.handleDetection({
+    title: "Chapter 13 - read free",
+    chapter: "Chapter 13",
+    url: "https://example-reader.com/novel/shadow-slave/chapter-13",
+    domain: "example-reader.com",
+    tabId: 7,
+    latest: null,
+  });
+  assert.equal(storage.pending_7.known, true, "the next chapter must resolve from the address alone");
+  assert.equal(storage.pending_7.novelId, 5);
+
+  // A second novel on the same site is its own address, not this one
+  await ctx.handleDetection({
+    title: "Read Online Free",
+    chapter: "Chapter 3",
+    url: "https://example-reader.com/novel/other-story/chapter-3",
+    domain: "example-reader.com",
+    tabId: 7,
+    latest: null,
+  });
+  assert.equal(storage.pending_7.known, false, "another novel on the same site must not inherit the link");
+
+  // The novel's own page: its cover, author, tags and chapter count are filed against it
+  // rather than offered as a second copy of a novel nobody has
+  await ctx.handleCoverDetection({
+    title: "Read Online Free",
+    coverUrl: "https://cdn.example-reader.com/shadow-slave.jpg",
+    url: "https://example-reader.com/novel/shadow-slave",
+    domain: "example-reader.com",
+    tabId: 7,
+  });
+  assert.equal(storage.cover_7.type, "cover", "a page linked by hand is a known novel, not a new one");
+  assert.equal(storage.cover_7.novelId, 5);
+
+  await ctx.handleMetadataDetection({
+    title: "Read Online Free",
+    author: "Guiltythree",
+    tags: [],
+    url: "https://example-reader.com/novel/shadow-slave",
+    tabId: 7,
+    latest: { latest_chapter: 273, confidence: "lower_bound" },
+  });
+  assert.equal(
+    calls.find((c) => c.url.endsWith("/metadata"))?.body.novel_id,
+    5,
+    "and its author and chapter count go to that novel too",
+  );
+  console.log("\u2713 background.js links a novel by hand, and only that novel's pages follow it");
+}
+
+
+// ── 45. popup.js: the novel is found by name when the page's title is furniture ─
+{
+  const storage = {};
+  const library = [
+    { id: 5, canonical_title: "Shadow Slave", aliases: [], current_chapter_raw: "Chapter 41" },
+    { id: 9, canonical_title: "Shadow Slave 2", aliases: [], current_chapter_raw: "Chapter 3" },
+  ];
+  const chrome = makeChrome(storage, {
+    linkResult: { ok: true, scoped: true, saved: true, scope: "/novel/shadow-slave" },
+  });
+  const { fetchStub } = makeFetch(library);
+  const { el, document } = makeDom();
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => { fn(); return 0; },
+    Promise,
+  });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  const body = document.getElementById("body");
+  const detection = {
+    title: "Read Online Free",
+    chapter: "Chapter 12",
+    url: "https://example-reader.com/novel/shadow-slave/chapter-12",
+    domain: "example-reader.com",
+    tabId: 7,
+    matches: [],
+    known: false,
+    latest: null,
+  };
+
+  ctx.renderUnknown(body, detection);
+  assert.match(body.innerHTML, /Search my library/, "a page that matched nothing must offer the library");
+  assert.equal(typeof el("btnSearch").onclick, "function", "and the offer has to be wired");
+
+  el("btnSearch").onclick();
+  await tick();
+  await tick();
+
+  assert.match(body.innerHTML, /Search your library/, "the panel opens on a search field");
+  el("searchInput").value = "shadow";
+  el("searchInput").oninput();
+  await tick();
+
+  assert.match(body.innerHTML, /Shadow Slave/, "typing must search the library by name");
+  assert.equal(typeof el("result-5").onclick, "function", "a result must be clickable");
+
+  await el("result-5").onclick();
+  await tick();
+
+  const sent = chrome.calls.messages.find((m) => m.type === "LINK_PAGE");
+  assert.ok(sent, "picking a novel must link the page to it");
+  assert.deepEqual({ ...sent.payload }, {
+    novelId: 5,
+    chapter: "Chapter 12",
+    url: detection.url,
+    domain: detection.domain,
+    tabId: 7,
+    latest: null,
+  });
+  assert.match(body.innerHTML, /Linked to Shadow Slave/, "and say what it linked");
+  assert.match(body.innerHTML, /novel\/shadow-slave/, "and name the address it will remember");
+  console.log("\u2713 popup.js finds a novel by name and links the page to it");
+}
+
+
+// ── 46. popup.js: a wrong link is correctable, and a nameless address says so ──
+{
+  const storage = { "recent:novelupdates.com": [3] };
+  const library = [
+    { id: 3, canonical_title: "Editor's Survival Guide", aliases: [], current_chapter_raw: "Chapter 12" },
+  ];
+  const chrome = makeChrome(storage, {
+    // This site's addresses name no novel, so nothing can be remembered from them
+    linkResult: { ok: true, scoped: false, saved: true },
+  });
+  const { fetchStub } = makeFetch(library);
+  const { el, document } = makeDom();
+
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => { fn(); return 0; },
+    Promise,
+  });
+  vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
+  await tick();
+
+  const body = document.getElementById("body");
+
+  // The page is already linked, and to the wrong novel: that must not be permanent
+  ctx.renderKnown(body, {
+    title: "Read Online",
+    chapter: "Chapter 12",
+    url: "https://www.novelupdates.com/read/1234",
+    domain: "novelupdates.com",
+    tabId: 7,
+    novelId: 5,
+    known: true,
+    latest: null,
+  });
+  assert.match(body.innerHTML, /Not the right novel/, "a linked page must offer a way to correct it");
+
+  el("btnSearch").onclick();
+  await tick();
+  await tick();
+
+  assert.match(body.innerHTML, /Recently linked on this site/, "the panel opens on this site's shortlist");
+  assert.equal(typeof el("result-3").onclick, "function", "a novel from the shortlist must be clickable");
+
+  el("btnBack").onclick();
+  assert.match(body.innerHTML, /Update Progress/, "Back must return to the page's own state");
+
+  // A novel page with no chapter: linking it still teaches the address
+  const cover = {
+    type: "add",
+    title: "Editor's Survival Guide",
+    coverUrl: "https://cdn.novelupdates.com/images/cover.jpg",
+    url: "https://www.novelupdates.com/read/1234",
+    domain: "novelupdates.com",
+    tabId: 7,
+  };
+  ctx.renderAddPrompt(body, cover);
+  assert.match(body.innerHTML, /Search my library/, "the add prompt must offer the library too");
+
+  el("btnSearch").onclick();
+  await tick();
+  await tick();
+
+  assert.match(body.innerHTML, /Recently linked on this site/, "and open on the same shortlist");
+
+  await el("result-3").onclick();
+  await tick();
+
+  const sent = chrome.calls.messages.filter((m) => m.type === "LINK_PAGE").pop();
+  assert.equal(sent.payload.chapter, "", "a novel page has no chapter to save");
+  assert.match(body.innerHTML, /Linked to Editor's Survival Guide/);
+  assert.match(
+    body.innerHTML,
+    /doesn't name one novel/,
+    "an address that names nothing must say so rather than link on a guess",
+  );
+  console.log("\u2713 popup.js corrects a wrong link, and admits an address that names nothing");
 }
 
 
