@@ -2474,17 +2474,23 @@ function makeDom() {
 
   const body = document.getElementById("body");
 
-  // The page is already linked, and to the wrong novel: that must not be permanent
-  ctx.renderKnown(body, {
+  // The page is already linked: the novel is named — not the site's own furniture the
+  // detection came up with — so a wrong link is visible before anything is updated
+  const known = {
     title: "Read Online",
     chapter: "Chapter 12",
     url: "https://www.novelupdates.com/read/1234",
     domain: "novelupdates.com",
     tabId: 7,
-    novelId: 5,
+    novelId: 3,
     known: true,
     latest: null,
-  });
+  };
+
+  await ctx.renderKnown(body, known);
+  assert.match(body.innerHTML, /Updating/, "a linked page must say what it is about to update");
+  assert.match(body.innerHTML, /Editor's Survival Guide/, "and name the novel, not the page's own title");
+  assert.doesNotMatch(body.innerHTML, /Read Online/, "the page's furniture is no use for checking");
   assert.match(body.innerHTML, /Not the right novel/, "a linked page must offer a way to correct it");
 
   el("btnSearch").onclick();
@@ -2495,6 +2501,7 @@ function makeDom() {
   assert.equal(typeof el("result-3").onclick, "function", "a novel from the shortlist must be clickable");
 
   el("btnBack").onclick();
+  await tick();
   assert.match(body.innerHTML, /Update Progress/, "Back must return to the page's own state");
 
   // A novel page with no chapter: linking it still teaches the address
@@ -2526,6 +2533,12 @@ function makeDom() {
     /doesn't name one novel/,
     "an address that names nothing must say so rather than link on a guess",
   );
+
+  // A novel deleted since the link was made: the page's own title is all that is left,
+  // and the click still reports the stale link rather than updating nothing
+  await ctx.renderKnown(body, { ...known, novelId: 999 });
+  assert.match(body.innerHTML, /Detected/, "a novel the library no longer has falls back to the page");
+  assert.match(body.innerHTML, /Read Online/);
   console.log("\u2713 popup.js corrects a wrong link, and admits an address that names nothing");
 }
 

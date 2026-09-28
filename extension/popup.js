@@ -229,7 +229,7 @@ async function init() {
   // Badge is set — check what's pending
   const detection = await getPendingWithRetry();
   if (detection) {
-    if (detection.known) renderKnown(body, detection);
+    if (detection.known) await renderKnown(body, detection);
     else renderUnknown(body, detection);
     return;
   }
@@ -267,7 +267,7 @@ async function init() {
     const d = await chrome.runtime.sendMessage({ type: "GET_PENDING" });
     if (d) {
       clearInterval(poll);
-      if (d.known) renderKnown(body, d);
+      if (d.known) await renderKnown(body, d);
       else renderUnknown(body, d);
       return;
     }
@@ -294,10 +294,16 @@ async function init() {
   }, 200);
 }
 
-function renderKnown(body, detection) {
+// The novel this page is already linked to — by its title, or by its address when the
+// title was no use. The name comes from the library as it is now, because on these pages
+// the detected title *is* the site's furniture: what is about to be updated has to be
+// named correctly before the click, and a novel renamed since is still the same novel.
+async function renderKnown(body, detection) {
+  const novel = (await getLibrary()).find((n) => n.id === detection.novelId);
+
   body.innerHTML = `
-    <div class="detection-label">Detected</div>
-    <div class="detected-title">${esc(detection.title)}</div>
+    <div class="detection-label">${novel ? "Updating" : "Detected"}</div>
+    <div class="detected-title">${esc(novel?.canonical_title ?? detection.title)}</div>
     <div class="detected-chapter">${esc(detection.chapter)}</div>
     <button class="btn-update" id="btnUpdate">Update Progress</button>
     <button class="btn-ignore" id="btnIgnore">Ignore</button>
