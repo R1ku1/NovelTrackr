@@ -75,6 +75,7 @@ The long version — progress lower bounds, address matching, popup offers, Nove
 - **Backups:** `%APPDATA%\com.aweso.noveltrackr\backups\` — the last 7 daily snapshots plus the 5 most recent taken before a restore. Restore any of them with **Restore Backup** on the stats page, or open them with any SQLite viewer.
 - **Export:** the full library exports to JSON and restores in one transaction, so a bad file changes nothing.
 - **No telemetry, no account, no cloud.** The extension only talks to the app at `127.0.0.1:39172`, and chapter data is saved only from pages you visit — nothing is fetched in the background. NovelUpdates searches are run by you, in your browser.
+- **Full policy:** [privacy.md](privacy.md) — what the extension reads, where it is stored, and how to delete it.
 
 ## Known limitations
 
