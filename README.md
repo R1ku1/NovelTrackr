@@ -49,19 +49,25 @@ The long version — progress lower bounds, address matching, popup offers, Nove
 
 ## Screenshots
 
-*Shown with sample data.*
+*App views use a sample library; the popup screenshots are the live extension on Royal Road and ScribbleHub.*
+
+### Extension popup — Royal Road
+
+![Extension popup on Royal Road](store-assets/screenshot-1-royalroad.png)
+
+### Extension popup — ScribbleHub
+
+![Extension popup on ScribbleHub](store-assets/screenshot-2-scribblehub.png)
 
 ### Library
 
-![Library view](images/library.jpg)
+![Library grid view](store-assets/screenshot-3-library-grid.png)
+
+![Library list view](store-assets/screenshot-4-library-list.png)
 
 ### Stats
 
-![Stats view](images/stats.jpg)
-
-### Extension popup
-
-![Extension popup](images/popup.jpg)
+![Stats view](store-assets/screenshot-5-stats.png)
 
 ## Data and privacy
 
