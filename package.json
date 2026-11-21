@@ -8,10 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "extension:zip": "node scripts/publish-extension.mjs --zip",
-    "extension:status": "node scripts/publish-extension.mjs --status",
-    "extension:upload": "node scripts/publish-extension.mjs --upload",
-    "extension:publish": "node scripts/publish-extension.mjs --publish"
+    "extension:zip": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1 -PackageOnly",
+    "extension:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1 -StatusOnly",
+    "extension:upload": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1 -UploadOnly",
+    "extension:publish": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
