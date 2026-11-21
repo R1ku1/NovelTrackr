@@ -62,7 +62,13 @@ const NOVEL_COLUMNS: [&str; 19] = [
     "total_chapters",
     "total_chapters_seen_at",
 ];
-const PROGRESS_COLUMNS: [&str; 5] = ["id", "novel_id", "chapter_raw", "chapter_sort", "updated_at"];
+const PROGRESS_COLUMNS: [&str; 5] = [
+    "id",
+    "novel_id",
+    "chapter_raw",
+    "chapter_sort",
+    "updated_at",
+];
 const ALIAS_COLUMNS: [&str; 3] = ["id", "novel_id", "alias"];
 const SOURCE_COLUMNS: [&str; 7] = [
     "id",
@@ -126,13 +132,62 @@ pub fn restore(db_path: &str, json: &str) -> Result<RestoreReport, String> {
     }
 
     let report = RestoreReport {
-        novels: insert_rows(&tx, "novels", &NOVEL_COLUMNS, &rows("novels"), &["id", "canonical_title"], false)?,
-        progress: insert_rows(&tx, "progress", &PROGRESS_COLUMNS, &rows("progress"), &["novel_id"], true)?,
-        aliases: insert_rows(&tx, "aliases", &ALIAS_COLUMNS, &rows("aliases"), &["novel_id", "alias"], false)?,
-        sources: insert_rows(&tx, "sources", &SOURCE_COLUMNS, &rows("sources"), &["novel_id", "domain"], true)?,
-        site_mappings: insert_rows(&tx, "site_mappings", &MAPPING_COLUMNS, &rows("site_mappings"), &["domain", "detected_title", "novel_id"], true)?,
-        reading_log: insert_rows(&tx, "reading_log", &LOG_COLUMNS, &rows("reading_log"), &["novel_id", "action", "timestamp"], false)?,
-        tag_vocabulary: insert_rows(&tx, "tag_vocabulary", &VOCABULARY_COLUMNS, &rows("tag_vocabulary"), &["name"], true)?,
+        novels: insert_rows(
+            &tx,
+            "novels",
+            &NOVEL_COLUMNS,
+            &rows("novels"),
+            &["id", "canonical_title"],
+            false,
+        )?,
+        progress: insert_rows(
+            &tx,
+            "progress",
+            &PROGRESS_COLUMNS,
+            &rows("progress"),
+            &["novel_id"],
+            true,
+        )?,
+        aliases: insert_rows(
+            &tx,
+            "aliases",
+            &ALIAS_COLUMNS,
+            &rows("aliases"),
+            &["novel_id", "alias"],
+            false,
+        )?,
+        sources: insert_rows(
+            &tx,
+            "sources",
+            &SOURCE_COLUMNS,
+            &rows("sources"),
+            &["novel_id", "domain"],
+            true,
+        )?,
+        site_mappings: insert_rows(
+            &tx,
+            "site_mappings",
+            &MAPPING_COLUMNS,
+            &rows("site_mappings"),
+            &["domain", "detected_title", "novel_id"],
+            true,
+        )?,
+        reading_log: insert_rows(
+            &tx,
+            "reading_log",
+            &LOG_COLUMNS,
+            &rows("reading_log"),
+            &["novel_id", "action", "timestamp"],
+            false,
+        )?,
+        tag_vocabulary: insert_rows(
+            &tx,
+            "tag_vocabulary",
+            &VOCABULARY_COLUMNS,
+            &rows("tag_vocabulary"),
+            &["name"],
+            true,
+        )?,
     };
 
     // A file that claims to hold novels but yields none of them would leave an
@@ -482,8 +537,14 @@ mod tests {
         let dir = fresh_dir("nodatabase");
         let path = dir.join("noveltrackr.db");
 
-        assert_eq!(daily_snapshot(path.to_str().unwrap(), KEEP_DAILY).unwrap(), None);
-        assert_eq!(snapshot_before_restore(path.to_str().unwrap()).unwrap(), None);
+        assert_eq!(
+            daily_snapshot(path.to_str().unwrap(), KEEP_DAILY).unwrap(),
+            None
+        );
+        assert_eq!(
+            snapshot_before_restore(path.to_str().unwrap()).unwrap(),
+            None
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -498,8 +559,17 @@ mod tests {
             .expect("the library existed, so a copy was due");
         let name = copy.file_name().unwrap().to_string_lossy().to_string();
 
-        assert!(name.starts_with("pre-restore-") && name.ends_with(".db"), "{name}");
-        assert_eq!(count(&Connection::open(&copy).unwrap(), "SELECT COUNT(*) FROM novels"), 2);
+        assert!(
+            name.starts_with("pre-restore-") && name.ends_with(".db"),
+            "{name}"
+        );
+        assert_eq!(
+            count(
+                &Connection::open(&copy).unwrap(),
+                "SELECT COUNT(*) FROM novels"
+            ),
+            2
+        );
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -510,7 +580,13 @@ mod tests {
         let backups = dir.join("backups");
         std::fs::create_dir_all(&backups).unwrap();
 
-        for day in ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05"] {
+        for day in [
+            "2026-09-01",
+            "2026-09-02",
+            "2026-09-03",
+            "2026-09-04",
+            "2026-09-05",
+        ] {
             std::fs::write(backups.join(format!("noveltrackr-{day}.db")), b"x").unwrap();
         }
         std::fs::write(backups.join("pre-restore-2026-09-05-120000.db"), b"x").unwrap();
@@ -550,8 +626,11 @@ mod tests {
         // A second install, holding a novel the backup has never heard of
         let path = fresh_db("restore-dst");
         let conn = Connection::open(&path).unwrap();
-        conn.execute("INSERT INTO novels (id, canonical_title) VALUES (99, 'Later Addition')", [])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO novels (id, canonical_title) VALUES (99, 'Later Addition')",
+            [],
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO reading_log (novel_id, action, chapter, timestamp)
              VALUES (99, 'started', 1, 1700000000)",
@@ -605,16 +684,29 @@ mod tests {
                 Ok((row.get(0)?, row.get(1)?))
             })
             .unwrap();
-        assert_eq!((notes.as_str(), tags.as_str()), ("where I left off", "[\"LitRPG\"]"));
+        assert_eq!(
+            (notes.as_str(), tags.as_str()),
+            ("where I left off", "[\"LitRPG\"]")
+        );
 
         let timestamp: i64 = conn
-            .query_row("SELECT timestamp FROM reading_log WHERE id = 1", [], |row| row.get(0))
+            .query_row(
+                "SELECT timestamp FROM reading_log WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(timestamp, 1_700_000_000, "log timestamps are not re-dated");
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM tag_vocabulary"), 1, "learned tags come back");
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM tag_vocabulary"),
+            1,
+            "learned tags come back"
+        );
 
         let rating: Option<i64> = conn
-            .query_row("SELECT rating FROM novels WHERE id = 2", [], |row| row.get(0))
+            .query_row("SELECT rating FROM novels WHERE id = 2", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(rating, Some(5), "a rating survives the round trip");
 
@@ -631,9 +723,9 @@ mod tests {
         let bad = [
             "",
             "not json at all",
-            r#"{"novels":[]}"#,                                // nothing says it is ours
-            r#"{"version":99,"novels":[]}"#,                   // written by a newer build
-            r#"{"version":4,"novels":[{"novel":1}]}"#,         // looks the part, isn't
+            r#"{"novels":[]}"#,                        // nothing says it is ours
+            r#"{"version":99,"novels":[]}"#,           // written by a newer build
+            r#"{"version":4,"novels":[{"novel":1}]}"#, // looks the part, isn't
             r#"{"version":4,"novels":[{"id":1,"canonical_title":"Half a row"}]}"#, // breaks NOT NULL
         ];
 
@@ -644,7 +736,11 @@ mod tests {
             );
         }
 
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM novels"), 2, "the library is untouched");
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM novels"),
+            2,
+            "the library is untouched"
+        );
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM reading_log"), 2);
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -667,10 +763,17 @@ mod tests {
 
         assert_eq!(report.novels, 1);
         assert_eq!(report.reading_log, 1);
-        assert_eq!(report.tag_vocabulary, 0, "a version 3 export predates the vocabulary key");
+        assert_eq!(
+            report.tag_vocabulary, 0,
+            "a version 3 export predates the vocabulary key"
+        );
 
         let title: String = conn
-            .query_row("SELECT canonical_title FROM novels WHERE id = 7", [], |row| row.get(0))
+            .query_row(
+                "SELECT canonical_title FROM novels WHERE id = 7",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(title, "Old One");
 
@@ -705,7 +808,10 @@ mod tests {
                 .collect();
             let restored: Vec<String> = columns.iter().map(|c| (*c).to_string()).collect();
 
-            assert_eq!(declared, restored, "{table}: the schema and the restore disagree");
+            assert_eq!(
+                declared, restored,
+                "{table}: the schema and the restore disagree"
+            );
         }
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

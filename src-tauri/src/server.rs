@@ -1,6 +1,6 @@
-use tiny_http::{Server, Response, Header, Method};
-use serde::{Deserialize, Serialize};
 use rusqlite::OptionalExtension;
+use serde::{Deserialize, Serialize};
+use tiny_http::{Header, Method, Response, Server};
 
 /// Requests must carry this header. It is not CORS-safelisted, so a browser page
 /// would have to preflight first — and its preflight never matches our CORS
@@ -143,36 +143,23 @@ fn clean_tags(tags: &[String], max: usize) -> Vec<String> {
 
 fn cors_headers() -> Vec<Header> {
     vec![
-        Header::from_bytes(
-            "Access-Control-Allow-Origin",
-            "chrome-extension://"
-        ).unwrap(),
-        Header::from_bytes(
-            "Access-Control-Allow-Methods",
-            "GET, POST, OPTIONS"
-        ).unwrap(),
-        Header::from_bytes(
-            "Access-Control-Allow-Headers",
-            "Content-Type"
-        ).unwrap(),
-        Header::from_bytes(
-            "Content-Type",
-            "application/json"
-        ).unwrap(),
+        Header::from_bytes("Access-Control-Allow-Origin", "chrome-extension://").unwrap(),
+        Header::from_bytes("Access-Control-Allow-Methods", "GET, POST, OPTIONS").unwrap(),
+        Header::from_bytes("Access-Control-Allow-Headers", "Content-Type").unwrap(),
+        Header::from_bytes("Content-Type", "application/json").unwrap(),
     ]
 }
 
 fn json_response(body: String, status: u16) -> Response<std::io::Cursor<Vec<u8>>> {
     let data = body.into_bytes();
     let len = data.len();
-    let response = Response::new(
+    Response::new(
         tiny_http::StatusCode(status),
         cors_headers(),
         std::io::Cursor::new(data),
         Some(len),
         None,
-    );
-    response
+    )
 }
 
 /// How much a reported latest chapter is worth. Ordered by trust, weakest first:
@@ -259,7 +246,9 @@ fn merge_latest(
     };
 
     let now: i64 = conn
-        .query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |row| row.get(0))
+        .query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |row| {
+            row.get(0)
+        })
         .map_err(|e| e.to_string())?;
 
     // What the reader has already read, if anything. An observation below that cannot
@@ -279,14 +268,15 @@ fn merge_latest(
     let above_what_is_read = move |value: f64| read_to.map(|here| value >= here).unwrap_or(true);
 
     let incoming = Confidence::parse(confidence).unwrap_or(Confidence::LowerBound);
-    let stored_rank = Confidence::parse(stored_confidence.as_deref())
-        .unwrap_or(Confidence::LowerBound);
+    let stored_rank =
+        Confidence::parse(stored_confidence.as_deref()).unwrap_or(Confidence::LowerBound);
 
     let (mut next_latest, mut next_confidence, mut next_seen) =
         (stored_latest, stored_confidence.clone(), stored_seen);
     let mut moved = false;
 
-    if let Some(observed) = latest.filter(|n| n.is_finite() && *n >= 0.0 && above_what_is_read(*n)) {
+    if let Some(observed) = latest.filter(|n| n.is_finite() && *n >= 0.0 && above_what_is_read(*n))
+    {
         let write = match stored_latest {
             None => true,
             Some(previous) if observed > previous => true,
@@ -299,7 +289,10 @@ fn merge_latest(
             next_confidence = Some(incoming.as_str().to_string());
             next_seen = Some(now);
             moved = true;
-        } else if stored_latest.map(|previous| observed >= previous).unwrap_or(false) {
+        } else if stored_latest
+            .map(|previous| observed >= previous)
+            .unwrap_or(false)
+        {
             // Same number, seen again: it stands, but it is current again
             next_seen = Some(now);
         }
@@ -309,7 +302,10 @@ fn merge_latest(
     // grow: a shorter list is a paginated ToC, not a novel that lost chapters.
     let (mut next_total, mut next_total_seen) = (stored_total, stored_total_seen);
     if let Some(observed) = total.filter(|n| n.is_finite() && *n >= 0.0 && above_what_is_read(*n)) {
-        if stored_total.map(|previous| observed >= previous).unwrap_or(true) {
+        if stored_total
+            .map(|previous| observed >= previous)
+            .unwrap_or(true)
+        {
             next_total = Some(observed);
             next_total_seen = Some(now);
         }
@@ -358,7 +354,8 @@ fn save_cover(
                 author = COALESCE(NULLIF(author, ''), ?2)
           WHERE id = ?3",
         rusqlite::params![cover_url, author, novel_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -395,7 +392,8 @@ fn save_vocabulary(db_path: &str, tags: &[String]) -> Result<usize, String> {
             "INSERT INTO tag_vocabulary (name, fetched_at) VALUES (?1, strftime('%s','now'))
              ON CONFLICT(name) DO UPDATE SET fetched_at = excluded.fetched_at",
             rusqlite::params![tag],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     Ok(clean.len())
@@ -411,7 +409,8 @@ fn save_metadata(db_path: &str, payload: &MetadataPayload) -> Result<(), String>
             "UPDATE novels SET author = ?1
              WHERE id = ?2 AND (author IS NULL OR author = '')",
             rusqlite::params![author, payload.novel_id],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     if let Some(tags) = &payload.tags {
@@ -437,7 +436,8 @@ fn save_metadata(db_path: &str, payload: &MetadataPayload) -> Result<(), String>
                   WHERE id = ?3
                     AND (tag_source IS NULL OR tag_source = ?2)",
                 rusqlite::params![json, source, payload.novel_id],
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         }
     }
 
@@ -455,9 +455,7 @@ fn save_metadata(db_path: &str, payload: &MetadataPayload) -> Result<(), String>
 }
 
 // The DB handle gets passed in from main
-pub fn start_server(
-    db_path: String,
-) {
+pub fn start_server(db_path: String) {
     start_server_on(db_path, "127.0.0.1:39172");
 }
 
@@ -478,11 +476,11 @@ pub fn start_server_on(db_path: String, addr: &str) {
                 return;
             }
         };
-        
+
         for mut request in server.incoming_requests() {
             let method = request.method().clone();
             let url = request.url().to_string();
-            
+
             // Handle CORS preflight
             if method == Method::Options {
                 let _ = request.respond(json_response("{}".to_string(), 200));
@@ -497,23 +495,14 @@ pub fn start_server_on(db_path: String, addr: &str) {
 
             let response = match (method.as_str(), url.as_str()) {
                 // Health check — extension pings this first
-                ("GET", "/status") => {
-                    json_response(r#"{"running":true}"#.to_string(), 200)
-                }
+                ("GET", "/status") => json_response(r#"{"running":true}"#.to_string(), 200),
 
                 // Get all novels for fuzzy matching in extension
                 ("GET", url) if url.starts_with("/novels") => {
                     // Read from SQLite directly
                     match get_novels_for_extension(&db_path) {
-                        Ok(novels) => {
-                            json_response(serde_json::to_string(&novels).unwrap(), 200)
-                        }
-                        Err(e) => {
-                            json_response(
-                                format!(r#"{{"error":"{}"}}"#, e),
-                                500
-                            )
-                        }
+                        Ok(novels) => json_response(serde_json::to_string(&novels).unwrap(), 200),
+                        Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
                     }
                 }
 
@@ -521,14 +510,12 @@ pub fn start_server_on(db_path: String, addr: &str) {
                 ("POST", "/progress") => {
                     let mut body = String::new();
                     request.as_reader().read_to_string(&mut body).unwrap_or(0);
-                    
+
                     match serde_json::from_str::<UpdateProgressPayload>(&body) {
-                        Ok(payload) => {
-                            match update_progress_and_source(&db_path, &payload) {
-                                Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
-                                Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
-                            }
-                        }
+                        Ok(payload) => match update_progress_and_source(&db_path, &payload) {
+                            Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
+                            Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                        },
                         Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 400),
                     }
                 }
@@ -537,14 +524,12 @@ pub fn start_server_on(db_path: String, addr: &str) {
                 ("POST", "/mappings") => {
                     let mut body = String::new();
                     request.as_reader().read_to_string(&mut body).unwrap_or(0);
-                    
+
                     match serde_json::from_str::<MappingPayload>(&body) {
-                        Ok(payload) => {
-                            match save_mapping(&db_path, &payload) {
-                                Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
-                                Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
-                            }
-                        }
+                        Ok(payload) => match save_mapping(&db_path, &payload) {
+                            Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
+                            Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                        },
                         Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 400),
                     }
                 }
@@ -552,7 +537,7 @@ pub fn start_server_on(db_path: String, addr: &str) {
                 ("POST", "/quick-add") => {
                     let mut body = String::new();
                     request.as_reader().read_to_string(&mut body).unwrap_or(0);
-                    
+
                     match serde_json::from_str::<QuickAddPayload>(&body) {
                         Ok(payload) => {
                             match quick_add_novel(&db_path, &payload) {
@@ -564,7 +549,8 @@ pub fn start_server_on(db_path: String, addr: &str) {
                                     format!(
                                         r#"{{"ok":false,"error":"duplicate","novel_id":{},"novel_title":{}}}"#,
                                         id,
-                                        serde_json::to_string(&title).unwrap_or_else(|_| "\"\"".to_string())
+                                        serde_json::to_string(&title)
+                                            .unwrap_or_else(|_| "\"\"".to_string())
                                     ),
                                     200,
                                 ),
@@ -582,15 +568,12 @@ pub fn start_server_on(db_path: String, addr: &str) {
                     request.as_reader().read_to_string(&mut body).unwrap_or(0);
 
                     match serde_json::from_str::<VocabularyPayload>(&body) {
-                        Ok(payload) => {
-                            match save_vocabulary(&db_path, &payload.tags) {
-                                Ok(count) => json_response(
-                                    format!(r#"{{"ok":true,"count":{}}}"#, count),
-                                    200,
-                                ),
-                                Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                        Ok(payload) => match save_vocabulary(&db_path, &payload.tags) {
+                            Ok(count) => {
+                                json_response(format!(r#"{{"ok":true,"count":{}}}"#, count), 200)
                             }
-                        }
+                            Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                        },
                         Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 400),
                     }
                 }
@@ -603,12 +586,10 @@ pub fn start_server_on(db_path: String, addr: &str) {
                     request.as_reader().read_to_string(&mut body).unwrap_or(0);
 
                     match serde_json::from_str::<MetadataPayload>(&body) {
-                        Ok(payload) => {
-                            match save_metadata(&db_path, &payload) {
-                                Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
-                                Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
-                            }
-                        }
+                        Ok(payload) => match save_metadata(&db_path, &payload) {
+                            Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
+                            Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
+                        },
                         Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 400),
                     }
                 }
@@ -627,7 +608,8 @@ pub fn start_server_on(db_path: String, addr: &str) {
                     match serde_json::from_str::<CoverPayload>(&body) {
                         Ok(payload) => {
                             let author = text_field(payload.author.as_deref());
-                            match save_cover(&db_path, payload.novel_id, &payload.cover_url, author) {
+                            match save_cover(&db_path, payload.novel_id, &payload.cover_url, author)
+                            {
                                 Ok(_) => json_response(r#"{"ok":true}"#.to_string(), 200),
                                 Err(e) => json_response(format!(r#"{{"error":"{}"}}"#, e), 500),
                             }
@@ -651,24 +633,27 @@ fn get_novels_for_extension(db_path: &str) -> Result<Vec<NovelSummary>, String> 
     let conn = open_db(db_path)?;
 
     // One pass instead of a query per novel; ORDER BY n.id keeps aliases contiguous
-    let mut stmt = conn.prepare(
-        "SELECT n.id, n.canonical_title, p.chapter_raw, n.cover_url, a.alias
+    let mut stmt = conn
+        .prepare(
+            "SELECT n.id, n.canonical_title, p.chapter_raw, n.cover_url, a.alias
          FROM novels n
          LEFT JOIN progress p ON p.novel_id = n.id
          LEFT JOIN aliases a ON a.novel_id = n.id
-         ORDER BY n.id"
-    ).map_err(|e| e.to_string())?;
+         ORDER BY n.id",
+        )
+        .map_err(|e| e.to_string())?;
 
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, Option<String>>(2)?,
-            row.get::<_, Option<String>>(3)?,
-            row.get::<_, Option<String>>(4)?,
-        ))
-    })
-    .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
 
     let mut result: Vec<NovelSummary> = Vec::new();
     for (id, title, chapter, cover, alias) in rows.filter_map(|r| r.ok()) {
@@ -702,13 +687,17 @@ fn log_progress(
         "INSERT INTO reading_log (novel_id, action, chapter, timestamp)
          VALUES (?1, 'progressed', ?2, strftime('%s','now'))",
         rusqlite::params![novel_id, chapter],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn update_progress_and_source(db_path: &str, payload: &UpdateProgressPayload) -> Result<(), String> {
+fn update_progress_and_source(
+    db_path: &str,
+    payload: &UpdateProgressPayload,
+) -> Result<(), String> {
     let conn = open_db(db_path)?;
-    
+
     // Parse chapter sort number
     let chapter_sort = parse_chapter_sort(&payload.chapter_raw);
 
@@ -732,7 +721,8 @@ fn update_progress_and_source(db_path: &str, payload: &UpdateProgressPayload) ->
            chapter_sort=excluded.chapter_sort,
            updated_at=excluded.updated_at",
         rusqlite::params![payload.novel_id, payload.chapter_raw, chapter_sort],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     if previous.as_deref() != Some(payload.chapter_raw.as_str()) {
         log_progress(&conn, payload.novel_id, chapter_sort)?;
@@ -751,7 +741,8 @@ fn update_progress_and_source(db_path: &str, payload: &UpdateProgressPayload) ->
     conn.execute(
         "UPDATE sources SET is_preferred = 0 WHERE novel_id = ?1",
         rusqlite::params![payload.novel_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     // Upsert source — update last_seen_url
     conn.execute(
@@ -768,7 +759,7 @@ fn update_progress_and_source(db_path: &str, payload: &UpdateProgressPayload) ->
 
 fn save_mapping(db_path: &str, payload: &MappingPayload) -> Result<(), String> {
     let conn = open_db(db_path)?;
-    
+
     conn.execute(
         "INSERT INTO site_mappings (domain, detected_title, novel_id, confirmed_at)
          VALUES (?1, ?2, ?3, datetime('now'))
@@ -776,14 +767,15 @@ fn save_mapping(db_path: &str, payload: &MappingPayload) -> Result<(), String> {
            novel_id=excluded.novel_id,
            confirmed_at=excluded.confirmed_at",
         rusqlite::params![payload.domain, payload.detected_title, payload.novel_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 fn parse_chapter_sort(raw: &str) -> Option<f64> {
     let lower = raw.to_lowercase();
-    
+
     if let Some(caps) = regex_find(r"chapter\s*(\d+\.?\d*)", &lower) {
         return caps.parse().ok();
     }
@@ -798,18 +790,25 @@ fn parse_chapter_sort(raw: &str) -> Option<f64> {
 
 // Simple regex-free number extraction to avoid adding regex dependency
 fn regex_find(pattern_hint: &str, text: &str) -> Option<String> {
-    let keyword = if pattern_hint.contains("chapter") { "chapter" }
-                  else if pattern_hint.contains("episode") { "episode" }
-                  else { return None };
-    
+    let keyword = if pattern_hint.contains("chapter") {
+        "chapter"
+    } else if pattern_hint.contains("episode") {
+        "episode"
+    } else {
+        return None;
+    };
+
     if let Some(pos) = text.find(keyword) {
         let after = &text[pos + keyword.len()..];
-        let trimmed = after.trim_start_matches(|c: char| c == ' ' || c == '\t');
-        let num: String = trimmed.chars()
+        let trimmed = after.trim_start_matches([' ', '\t']);
+        let num: String = trimmed
+            .chars()
             .skip_while(|c| !c.is_ascii_digit())
             .take_while(|c| c.is_ascii_digit() || *c == '.')
             .collect();
-        if !num.is_empty() { return Some(num); }
+        if !num.is_empty() {
+            return Some(num);
+        }
     }
     None
 }
@@ -914,31 +913,36 @@ fn quick_add_novel(db_path: &str, payload: &QuickAddPayload) -> Result<QuickAddR
             DEFAULT_STATUS
         ),
         rusqlite::params![payload.title],
-    ).map_err(|e| e.to_string())?;
-    
+    )
+    .map_err(|e| e.to_string())?;
+
     let id = conn.last_insert_rowid();
-    
+
     if !payload.chapter_raw.is_empty() {
         let chapter_sort: Option<f64> = parse_chapter_sort(&payload.chapter_raw);
         conn.execute(
             "INSERT INTO progress (novel_id, chapter_raw, chapter_sort, updated_at)
              VALUES (?1, ?2, ?3, datetime('now'))",
             rusqlite::params![id, payload.chapter_raw, chapter_sort],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     // The page's author and tags ride along with the add, through the same rules
     // the /metadata route uses (fill a gap, never overwrite)
     if payload.author.is_some() || payload.tags.is_some() {
-        save_metadata(db_path, &MetadataPayload {
-            novel_id: id,
-            author: payload.author.clone(),
-            tags: payload.tags.clone(),
-            source: payload.source.clone(),
-            latest_chapter: None,
-            latest_chapter_confidence: None,
-            total_chapters: None,
-        })?;
+        save_metadata(
+            db_path,
+            &MetadataPayload {
+                novel_id: id,
+                author: payload.author.clone(),
+                tags: payload.tags.clone(),
+                source: payload.source.clone(),
+                latest_chapter: None,
+                latest_chapter_confidence: None,
+                total_chapters: None,
+            },
+        )?;
     }
 
     Ok(QuickAddResult::Added(id))
@@ -1001,7 +1005,8 @@ mod tests {
                    ('Has A Cover', 'reading', 'https://cdn.example/cover.jpg'),
                    ('No Cover', 'planned', '')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let novels = get_novels_for_extension(path.to_str().unwrap()).unwrap();
@@ -1036,27 +1041,35 @@ mod tests {
                    ('Done One', 'completed'),
                    ('Planned One', 'planned')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
             conn.execute(
                 "INSERT INTO progress (novel_id, chapter_raw, chapter_sort)
                  VALUES (1, 'Chapter 12', 12)",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         migrate(&path, 4);
 
         let conn = rusqlite::Connection::open(&path).unwrap();
         let rows: Vec<(i64, String, Option<i64>, i64)> = conn
-            .prepare("SELECT novel_id, action, chapter, timestamp FROM reading_log ORDER BY novel_id")
+            .prepare(
+                "SELECT novel_id, action, chapter, timestamp FROM reading_log ORDER BY novel_id",
+            )
             .unwrap()
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
             .unwrap()
             .filter_map(|r| r.ok())
             .collect();
 
         assert_eq!(
-            rows.iter().map(|r| (r.0, r.1.clone(), r.2)).collect::<Vec<_>>(),
+            rows.iter()
+                .map(|r| (r.0, r.1.clone(), r.2))
+                .collect::<Vec<_>>(),
             vec![
                 (1, "started".to_string(), Some(12)),
                 (2, "completed".to_string(), None),
@@ -1085,7 +1098,8 @@ mod tests {
                    ('No Author Yet', 'planned', NULL),
                    ('Already Has One', 'planned', 'Manual Name')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let save = |id: i64, author: &str| {
@@ -1100,7 +1114,8 @@ mod tests {
                     latest_chapter_confidence: None,
                     total_chapters: None,
                 },
-            ).unwrap();
+            )
+            .unwrap();
         };
 
         save(1, "  Guiltythree  ");
@@ -1140,7 +1155,8 @@ mod tests {
                    ('Fresh', 'planned', NULL, NULL),
                    ('Hand Tagged', 'planned', '[\"LitRPG\"]', 'manual')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let save = |id: i64, tags: Vec<String>, source: &str| {
@@ -1162,13 +1178,14 @@ mod tests {
             1,
             vec![
                 " LitRPG ".to_string(),
-                "litrpg".to_string(),                  // same tag, different case
-                String::new(),                         // nothing to store
-                "x".repeat(MAX_TAG_LEN + 1),           // junk
+                "litrpg".to_string(),        // same tag, different case
+                String::new(),               // nothing to store
+                "x".repeat(MAX_TAG_LEN + 1), // junk
                 "Progression Fantasy".to_string(),
             ],
             "royalroad",
-        ).unwrap();
+        )
+        .unwrap();
 
         // Manual tags belong to the user
         save(2, vec!["LitRPG".to_string()], "royalroad").unwrap();
@@ -1190,12 +1207,20 @@ mod tests {
 
         assert_eq!(
             rows[0],
-            (1, Some(r#"["LitRPG","Progression Fantasy"]"#.to_string()), Some("royalroad".to_string())),
+            (
+                1,
+                Some(r#"["LitRPG","Progression Fantasy"]"#.to_string()),
+                Some("royalroad".to_string())
+            ),
             "tags must be trimmed, de-duplicated and stored as JSON"
         );
         assert_eq!(
             rows[1],
-            (2, Some(r#"["LitRPG"]"#.to_string()), Some("manual".to_string())),
+            (
+                2,
+                Some(r#"["LitRPG"]"#.to_string()),
+                Some("manual".to_string())
+            ),
             "a manual edit must survive a page visit"
         );
 
@@ -1217,7 +1242,8 @@ mod tests {
                 tags: None,
                 source: None,
             },
-        ).unwrap();
+        )
+        .unwrap();
 
         let conn = rusqlite::Connection::open(&path).unwrap();
         let author: String = conn
@@ -1238,17 +1264,20 @@ mod tests {
         let tags = |extra: &[&str]| {
             let mut all: Vec<String> = vec![
                 "LitRPG".to_string(),
-                "lit-rpg".to_string(),              // same tag, other spelling
+                "lit-rpg".to_string(), // same tag, other spelling
                 "Progression Fantasy".to_string(),
                 String::new(),
-                "y".repeat(MAX_TAG_LEN + 1),        // junk
+                "y".repeat(MAX_TAG_LEN + 1), // junk
             ];
             all.extend(extra.iter().map(|t| t.to_string()));
             all
         };
 
         let saved = save_vocabulary(path.to_str().unwrap(), &tags(&[])).unwrap();
-        assert_eq!(saved, 2, "junk and duplicates are dropped before they are stored");
+        assert_eq!(
+            saved, 2,
+            "junk and duplicates are dropped before they are stored"
+        );
 
         // Capturing again (e.g. a second visit to the page) is idempotent
         save_vocabulary(path.to_str().unwrap(), &tags(&["Comedy"])).unwrap();
@@ -1285,7 +1314,8 @@ mod tests {
             conn.execute(
                 "INSERT INTO novels (canonical_title, status) VALUES ('Shadow Slave', 'planned')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         save_vocabulary(
@@ -1295,7 +1325,8 @@ mod tests {
                 "Sci-Fi".to_string(),
                 "Progression Fantasy".to_string(),
             ],
-        ).unwrap();
+        )
+        .unwrap();
 
         save_metadata(
             path.to_str().unwrap(),
@@ -1312,7 +1343,8 @@ mod tests {
                 latest_chapter_confidence: None,
                 total_chapters: None,
             },
-        ).unwrap();
+        )
+        .unwrap();
 
         let conn = rusqlite::Connection::open(&path).unwrap();
         let tags: String = conn
@@ -1335,7 +1367,8 @@ mod tests {
             conn.execute(
                 "INSERT INTO novels (canonical_title, status) VALUES ('Shadow Slave', 'reading')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let payload = |chapter: &str| UpdateProgressPayload {
@@ -1376,7 +1409,10 @@ mod tests {
     #[test]
     fn similarity_mirrors_the_frontend_rule() {
         // Same novel, punctuation/typography differences
-        assert!(similarity("Editor\u{2019}s Survival Guide", "Editors Survival Guide") >= DUPLICATE_THRESHOLD);
+        assert!(
+            similarity("Editor\u{2019}s Survival Guide", "Editors Survival Guide")
+                >= DUPLICATE_THRESHOLD
+        );
         assert_eq!(similarity("Shadow Slave", "shadow slave!"), 1.0);
         // Different novels must not be treated as duplicates
         assert!(similarity("Shadow Slave", "Editor\u{2019}s Survival Guide") < DUPLICATE_THRESHOLD);
@@ -1386,7 +1422,10 @@ mod tests {
     #[test]
     fn normalise_matches_the_ts_implementation() {
         // Background.js: s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim()
-        assert_eq!(normalise("  Editor\u{2019}s  Survival-Guide! "), "editors survivalguide");
+        assert_eq!(
+            normalise("  Editor\u{2019}s  Survival-Guide! "),
+            "editors survivalguide"
+        );
         assert_eq!(normalise("TBATE: The Beginning"), "tbate the beginning");
     }
 
@@ -1422,10 +1461,16 @@ mod tests {
         assert!(up, "server never came up on port {}", port);
 
         let (unauthed_status, _) = http_get(port, false);
-        assert_eq!(unauthed_status, 403, "requests from other origins must be refused");
+        assert_eq!(
+            unauthed_status, 403,
+            "requests from other origins must be refused"
+        );
 
         let (authed_status, body) = http_get(port, true);
-        assert_eq!(authed_status, 200, "the extension's requests must get through");
+        assert_eq!(
+            authed_status, 200,
+            "the extension's requests must get through"
+        );
         assert!(body.contains("running"));
     }
 
@@ -1437,7 +1482,11 @@ mod tests {
             .set_read_timeout(Some(std::time::Duration::from_secs(2)))
             .unwrap();
 
-        let auth = if with_header { "X-Noveltrackr: 1\r\n" } else { "" };
+        let auth = if with_header {
+            "X-Noveltrackr: 1\r\n"
+        } else {
+            ""
+        };
         let request = format!(
             "GET /status HTTP/1.1\r\nHost: 127.0.0.1\r\n{}Connection: close\r\n\r\n",
             auth
@@ -1468,7 +1517,10 @@ mod tests {
         // Hold a port, then ask the server for it
         let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let taken = format!("127.0.0.1:{}", held.local_addr().unwrap().port());
-        assert!(bind_server(&taken).is_err(), "an occupied port must be reported, not panicked");
+        assert!(
+            bind_server(&taken).is_err(),
+            "an occupied port must be reported, not panicked"
+        );
 
         // And a free one still binds
         let free = {
@@ -1505,9 +1557,14 @@ mod tests {
 
         let conn = rusqlite::Connection::open(&path).unwrap();
         let status: String = conn
-            .query_row("SELECT status FROM novels WHERE id = ?1", [id], |row| row.get(0))
+            .query_row("SELECT status FROM novels WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
             .unwrap();
-        assert_eq!(status, DEFAULT_STATUS, "quick-add must write the app's default status");
+        assert_eq!(
+            status, DEFAULT_STATUS,
+            "quick-add must write the app's default status"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1524,7 +1581,13 @@ mod tests {
     // ── Latest chapter merge ─────────────────────────────────────────────────
 
     /// (latest, confidence, seen_at, total, total_seen_at)
-    type LatestRow = (Option<f64>, Option<String>, Option<i64>, Option<f64>, Option<i64>);
+    type LatestRow = (
+        Option<f64>,
+        Option<String>,
+        Option<i64>,
+        Option<f64>,
+        Option<i64>,
+    );
 
     /// One novel, with whatever the test wants the columns to already hold
     fn novel_db(name: &str, preset: &str) -> std::path::PathBuf {
@@ -1539,7 +1602,8 @@ mod tests {
         .unwrap();
 
         if !preset.is_empty() {
-            conn.execute(&format!("UPDATE novels SET {preset} WHERE id = 1"), []).unwrap();
+            conn.execute(&format!("UPDATE novels SET {preset} WHERE id = 1"), [])
+                .unwrap();
         }
 
         path
@@ -1553,14 +1617,24 @@ mod tests {
                FROM novels
               WHERE id = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .unwrap()
     }
 
     fn now_secs(conn: &rusqlite::Connection) -> i64 {
-        conn.query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |row| row.get(0))
-            .unwrap()
+        conn.query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |row| {
+            row.get(0)
+        })
+        .unwrap()
     }
 
     #[test]
@@ -1578,7 +1652,10 @@ mod tests {
         let (latest, confidence, seen, _, _) = latest_row(&path);
         assert_eq!(latest, Some(420.0));
         assert_eq!(confidence.as_deref(), Some("lower_bound"));
-        assert!(now_secs(&conn) - seen.unwrap() < 60, "a fresh number is fresh");
+        assert!(
+            now_secs(&conn) - seen.unwrap() < 60,
+            "a fresh number is fresh"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1595,8 +1672,16 @@ mod tests {
         assert!(!merge_latest(&conn, 1, Some(400.0), Some("lower_bound"), None).unwrap());
 
         let (latest, confidence, _, _, _) = latest_row(&path);
-        assert_eq!(latest, Some(420.0), "a paginated list must not shrink the site");
-        assert_eq!(confidence.as_deref(), Some("exact"), "and must not weaken the evidence");
+        assert_eq!(
+            latest,
+            Some(420.0),
+            "a paginated list must not shrink the site"
+        );
+        assert_eq!(
+            confidence.as_deref(),
+            Some("exact"),
+            "and must not weaken the evidence"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1609,7 +1694,10 @@ mod tests {
 
         assert!(merge_latest(&conn, 1, Some(412.0), Some("caught_up"), None).unwrap());
         let (latest, confidence, _, _, _) = latest_row(&path);
-        assert_eq!((latest, confidence.as_deref()), (Some(412.0), Some("caught_up")));
+        assert_eq!(
+            (latest, confidence.as_deref()),
+            (Some(412.0), Some("caught_up"))
+        );
 
         let _ = std::fs::remove_file(&path);
 
@@ -1641,7 +1729,10 @@ mod tests {
         assert!(merge_latest(&conn, 1, Some(850.0), Some("exact"), None).unwrap());
 
         let (latest, confidence, _, _, _) = latest_row(&path);
-        assert_eq!((latest, confidence.as_deref()), (Some(850.0), Some("exact")));
+        assert_eq!(
+            (latest, confidence.as_deref()),
+            (Some(850.0), Some("exact"))
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1674,7 +1765,10 @@ mod tests {
             Some("exact"),
             "confirming a number does not rewrite what the evidence was"
         );
-        assert!(now_secs(&conn) - seen.unwrap() < 60, "a confirmed value is current again");
+        assert!(
+            now_secs(&conn) - seen.unwrap() < 60,
+            "a confirmed value is current again"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1689,7 +1783,11 @@ mod tests {
 
         // A paginated ToC later: it lists fewer chapters than the novel has
         merge_latest(&conn, 1, None, None, Some(30.0)).unwrap();
-        assert_eq!(latest_row(&path).3, Some(50.0), "a short list is not a smaller novel");
+        assert_eq!(
+            latest_row(&path).3,
+            Some(50.0),
+            "a short list is not a smaller novel"
+        );
 
         merge_latest(&conn, 1, None, None, Some(60.0)).unwrap();
         assert_eq!(latest_row(&path).3, Some(60.0));
@@ -1739,7 +1837,11 @@ mod tests {
         // An older extension's payload, or a page with no evidence at all
         assert!(!merge_latest(&conn, 1, None, None, None).unwrap());
 
-        assert_eq!(latest_row(&path), before, "nothing observed, nothing changed");
+        assert_eq!(
+            latest_row(&path),
+            before,
+            "nothing observed, nothing changed"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1773,7 +1875,10 @@ mod tests {
             (Some(160.0), Some("exact"), Some(160.0)),
             "one write carries both the reader's chapter and the site's"
         );
-        assert!(seen.is_some() && total_seen.is_some(), "and stamps both observations");
+        assert!(
+            seen.is_some() && total_seen.is_some(),
+            "and stamps both observations"
+        );
 
         // The metadata route carries the same three fields
         save_metadata(
@@ -1814,11 +1919,19 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(latest_row(&path).0, None, "an omitted observation fills nothing in");
+        assert_eq!(
+            latest_row(&path).0,
+            None,
+            "an omitted observation fills nothing in"
+        );
 
         let conn = rusqlite::Connection::open(&path).unwrap();
         let chapter: String = conn
-            .query_row("SELECT chapter_raw FROM progress WHERE novel_id = 1", [], |row| row.get(0))
+            .query_row(
+                "SELECT chapter_raw FROM progress WHERE novel_id = 1",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(chapter, "Chapter 105");
 
@@ -1844,7 +1957,11 @@ mod tests {
 
         // The offered number is 9 while the reader is on 10
         assert!(!merge_latest(&conn, 1, Some(9.0), Some("lower_bound"), Some(9.0)).unwrap());
-        assert_eq!(latest_row(&path), (None, None, None, None, None), "nothing was stored");
+        assert_eq!(
+            latest_row(&path),
+            (None, None, None, None, None),
+            "nothing was stored"
+        );
 
         let (raw, sort): (String, f64) = conn
             .query_row(

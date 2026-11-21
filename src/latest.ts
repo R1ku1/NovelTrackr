@@ -48,11 +48,7 @@ export function confidenceLabel(confidence: string | null): string {
 }
 
 /// The one line the edit panel shows about the site's own count
-export function latestSummary(
-  latest: number | null,
-  confidence: string | null,
-  seenAt: number | null
-): string | null {
+export function latestSummary(latest: number | null, confidence: string | null, seenAt: number | null): string | null {
   if (latest === null) return null;
 
   const asOf = seenDate(seenAt) ? `as of ${seenDate(seenAt)}` : "never confirmed";

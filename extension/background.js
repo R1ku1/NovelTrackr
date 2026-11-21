@@ -243,10 +243,7 @@ async function handleMetadataDetection({ title, author, tags, source, url, tabId
     // The series the user picked in the NU flow, then a page linked by hand by its
     // address, then a fuzzy title match
     const confirmed = await getNuSeriesNovel(url);
-    const novelId = confirmed
-      ?? (await novelLinkedTo(url, novels))?.id
-      ?? matches[0]?.id
-      ?? null;
+    const novelId = confirmed ?? (await novelLinkedTo(url, novels))?.id ?? matches[0]?.id ?? null;
 
     if (!novelId) return;
 
@@ -342,21 +339,26 @@ async function getNovels() {
 
 // ── Fuzzy matching ────────────────────────────────────────────────────────────
 function normalise(s) {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function levenshtein(a, b) {
-  const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, (_, i) => 
-    Array.from({ length: n + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0)
+  const m = a.length,
+    n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
   );
-  
+
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      if (a[i-1] === b[j-1]) {
-        dp[i][j] = dp[i-1][j-1];
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
       } else {
-        dp[i][j] = 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
       }
     }
   }
@@ -368,19 +370,17 @@ function similarity(a, b) {
   const nb = normalise(b);
   if (!na || !nb) return 0;
   if (na === nb) return 1;
-  
+
   const dist = levenshtein(na, nb);
   const maxLen = Math.max(na.length, nb.length);
-  return 1 - (dist / maxLen);
+  return 1 - dist / maxLen;
 }
 
 function findMatches(detectedTitle, novels) {
   return novels
-    .map(n => {
+    .map((n) => {
       const titleScore = similarity(detectedTitle, n.canonical_title);
-      const aliasScore = n.aliases.length
-        ? Math.max(...n.aliases.map(a => similarity(detectedTitle, a)))
-        : 0;
+      const aliasScore = n.aliases.length ? Math.max(...n.aliases.map((a) => similarity(detectedTitle, a))) : 0;
       return { novel: n, score: Math.max(titleScore, aliasScore) };
     })
     .filter(({ score }) => score >= 0.75)
@@ -444,9 +444,7 @@ function urlScope(href, chapter) {
   if (cut === -1) {
     // A chapter word on its own: the number in the segment after it is the chapter's
     // id rather than its number (Royal Road writes both)
-    cut = segments.findIndex(
-      (segment, i) => CHAPTER_WORD.test(segment) && i < segments.length - 1,
-    );
+    cut = segments.findIndex((segment, i) => CHAPTER_WORD.test(segment) && i < segments.length - 1);
   }
   if (cut === -1 && number) {
     const last = segments.at(-1);
@@ -628,14 +626,10 @@ async function handleDetection({ title, chapter, url, domain, tabId, latest }) {
   // The address first: a page the user linked by hand is linked on purpose, and its
   // title is exactly what could not be trusted to find it in the first place
   const scope = urlScope(url, chapter);
-  const knownNovelId = (scope ? await getScopeMapping(domain, scope) : null)
-    ?? await getKnownMapping(domain, title);
+  const knownNovelId = (scope ? await getScopeMapping(domain, scope) : null) ?? (await getKnownMapping(domain, title));
 
   if (knownNovelId) {
-    await setPending(
-      tabId,
-      { title, chapter, url, domain, latest, novelId: knownNovelId, known: true, tabId },
-    );
+    await setPending(tabId, { title, chapter, url, domain, latest, novelId: knownNovelId, known: true, tabId });
     chrome.action.setBadgeText({ text: "↑", tabId });
     chrome.action.setBadgeBackgroundColor({ color: "#60a5fa", tabId });
 
@@ -669,7 +663,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Get detection for the tab that the popup is associated with
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tabId = tabs[0]?.id;
-      if (!tabId) { sendResponse(null); return; }
+      if (!tabId) {
+        sendResponse(null);
+        return;
+      }
       const data = await getPending(tabId);
       sendResponse(data);
     });
@@ -691,39 +688,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ...latestFields(latest),
       }),
     })
-    .then(async (res) => {
-      const data = await res.json();
+      .then(async (res) => {
+        const data = await res.json();
 
-      if (!res.ok || data.error) {
-        // Stale mapping — clear it
-        const key = scope ? scopeKey(domain, scope) : `mapping:${domain}:${normalise(detectedTitle)}`;
-        await chrome.storage.local.remove(key);
+        if (!res.ok || data.error) {
+          // Stale mapping — clear it
+          const key = scope ? scopeKey(domain, scope) : `mapping:${domain}:${normalise(detectedTitle)}`;
+          await chrome.storage.local.remove(key);
+          if (tabId) await clearPending(tabId);
+          sendResponse({ error: "stale_mapping" });
+          return;
+        }
+
+        // A page whose address names its novel is linked by address; a title is what is
+        // left when the address says nothing (see urlScope)
+        if (scope) {
+          await saveScopeMapping(domain, scope, novelId);
+        } else {
+          await saveLocalMapping(domain, detectedTitle, novelId);
+          await fetch(`${API}/mappings`, {
+            method: "POST",
+            headers: API_HEADERS,
+            body: JSON.stringify({
+              domain,
+              detected_title: detectedTitle,
+              novel_id: novelId,
+            }),
+          });
+        }
+        await rememberRecent(domain, novelId);
         if (tabId) await clearPending(tabId);
-        sendResponse({ error: "stale_mapping" });
-        return;
-      }
-
-      // A page whose address names its novel is linked by address; a title is what is
-      // left when the address says nothing (see urlScope)
-      if (scope) {
-        await saveScopeMapping(domain, scope, novelId);
-      } else {
-        await saveLocalMapping(domain, detectedTitle, novelId);
-        await fetch(`${API}/mappings`, {
-          method: "POST",
-          headers: API_HEADERS,
-          body: JSON.stringify({
-            domain,
-            detected_title: detectedTitle,
-            novel_id: novelId,
-          }),
-        });
-      }
-      await rememberRecent(domain, novelId);
-      if (tabId) await clearPending(tabId);
-      sendResponse({ ok: true });
-    })
-    .catch(e => sendResponse({ error: e.message }));
+        sendResponse({ ok: true });
+      })
+      .catch((e) => sendResponse({ error: e.message }));
 
     return true; // async
   }
@@ -746,20 +743,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async
   }
 
-if (message.type === "COVER_DETECTED") {
-  // The whole payload rides along: the page's author and tags are part of the
-  // offer to add, and handleCoverDetection decides which of them are worth
-  // keeping. Naming them here is how they got dropped on the way to the popup.
-  const tabId = sender.tab?.id;
+  if (message.type === "COVER_DETECTED") {
+    // The whole payload rides along: the page's author and tags are part of the
+    // offer to add, and handleCoverDetection decides which of them are worth
+    // keeping. Naming them here is how they got dropped on the way to the popup.
+    const tabId = sender.tab?.id;
 
-  if (tabId) {
-    handleCoverDetection({ ...message.payload, tabId })
-      .catch(console.error);
+    if (tabId) {
+      handleCoverDetection({ ...message.payload, tabId }).catch(console.error);
+    }
+
+    sendResponse({ ok: true });
+    return false;
   }
-
-  sendResponse({ ok: true });
-  return false;
-}
 
   if (message.type === "VOCABULARY_DETECTED") {
     postVocabulary(message.payload.tags).catch(console.error);
@@ -768,8 +764,7 @@ if (message.type === "COVER_DETECTED") {
   }
 
   if (message.type === "METADATA_DETECTED") {
-    handleMetadataDetection({ ...message.payload, url: sender.tab?.url, tabId: sender.tab?.id })
-      .catch(console.error);
+    handleMetadataDetection({ ...message.payload, url: sender.tab?.url, tabId: sender.tab?.id }).catch(console.error);
     sendResponse({ ok: true });
     return false;
   }
@@ -811,7 +806,10 @@ if (message.type === "COVER_DETECTED") {
   if (message.type === "GET_NU_SAVED") {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tabId = tabs[0]?.id;
-      if (!tabId) { sendResponse(null); return; }
+      if (!tabId) {
+        sendResponse(null);
+        return;
+      }
       sendResponse(await getNuSaved(tabId));
     });
     return true;
@@ -820,7 +818,10 @@ if (message.type === "COVER_DETECTED") {
   if (message.type === "GET_NU_PENDING") {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tabId = tabs[0]?.id;
-      if (!tabId) { sendResponse(null); return; }
+      if (!tabId) {
+        sendResponse(null);
+        return;
+      }
       sendResponse(await getNuPending(tabId));
     });
     return true;
@@ -845,7 +846,10 @@ if (message.type === "COVER_DETECTED") {
   if (message.type === "GET_COVER_PENDING") {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tabId = tabs[0]?.id;
-      if (!tabId) { sendResponse(null); return; }
+      if (!tabId) {
+        sendResponse(null);
+        return;
+      }
       const data = await getCoverPending(tabId);
       sendResponse(data);
     });
@@ -854,18 +858,18 @@ if (message.type === "COVER_DETECTED") {
 
   if (message.type === "SAVE_COVER") {
     const { novelId, coverUrl, author, tabId } = message.payload;
-    
+
     fetch(`${API}/cover`, {
       method: "POST",
       headers: API_HEADERS,
       body: JSON.stringify({ novel_id: novelId, cover_url: coverUrl, author: author ?? null }),
     })
-    .then(async (res) => {
-      const data = await res.json();
-      if (tabId) await clearCoverPending(tabId);
-      sendResponse(data.ok ? { ok: true } : { error: data.error });
-    })
-    .catch(e => sendResponse({ error: e.message }));
+      .then(async (res) => {
+        const data = await res.json();
+        if (tabId) await clearCoverPending(tabId);
+        sendResponse(data.ok ? { ok: true } : { error: data.error });
+      })
+      .catch((e) => sendResponse({ error: e.message }));
 
     return true;
   }

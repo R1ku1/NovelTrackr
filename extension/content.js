@@ -1,13 +1,10 @@
 // Runs on every page — detects novel/chapter and messages the background worker
 
-
 function extractGeneric() {
   const docTitle = document.title;
-  
+
   // Strip site name suffix first — everything after last " | "
-  const withoutSite = docTitle.includes(" | ")
-    ? docTitle.substring(0, docTitle.lastIndexOf(" | "))
-    : docTitle;
+  const withoutSite = docTitle.includes(" | ") ? docTitle.substring(0, docTitle.lastIndexOf(" | ")) : docTitle;
 
   // Now we have something like:
   // "Chapter 1: The Hero's Requiem. - The Demon Queen Wants To Live. [Progression]"
@@ -17,21 +14,21 @@ function extractGeneric() {
   // Find the LAST " - " as the split point
   // This handles "Chapter 1: Subtitle - Novel Title" correctly
   const lastDash = withoutSite.lastIndexOf(" - ");
-  
+
   if (lastDash !== -1) {
     const left = withoutSite.substring(0, lastDash).trim();
     const right = withoutSite.substring(lastDash + 3).trim();
-    
+
     const leftIsChapter = /^chapter\s*\d/i.test(left) || /^episode\s*\d/i.test(left);
     const rightIsChapter = /^chapter\s*\d/i.test(right) || /^episode\s*\d/i.test(right);
-    
+
     if (leftIsChapter) {
       // "Chapter 1: Hero's Requiem - Novel Title"
       // Extract just "Chapter 1" from the left part
       const chapterNum = left.match(/^(chapter\s*[\d.]+)/i)?.[1] ?? left;
       return { title: right, chapter: chapterNum };
     }
-    
+
     if (rightIsChapter) {
       // "Novel Title - Chapter 1"
       const chapterNum = right.match(/^(chapter\s*[\d.]+)/i)?.[1] ?? right;
@@ -58,9 +55,9 @@ function extractGeneric() {
 // Per-site author selectors, tried in order — the first one with text wins.
 // Nothing is guessed: no match means the field stays empty.
 const SITE_AUTHOR = {
-  "royalroad.com":   ["a[href*='/profile/']", ".fic-title .author", ".author"],
+  "royalroad.com": ["a[href*='/profile/']", ".fic-title .author", ".author"],
   "scribblehub.com": ["a[href*='/profile/']", ".series-author", ".author"],
-  "novelfire.net":   [".novel-detail .author a", ".author a", ".author"],
+  "novelfire.net": [".novel-detail .author a", ".author a", ".author"],
 };
 
 // Sites that aren't listed here still get the standard hints
@@ -130,12 +127,14 @@ function tagKey(tag) {
 
 // Trimmed, de-duplicated, capped text of every element a selector matches
 function textsFrom(selector, max) {
-  return [...document.querySelectorAll(selector)]
-    .map((el) => el.textContent.trim())
-    // A tag is a short label; anything longer is a chapter or a title
-    .filter((t) => t && t.length <= 60)
-    .filter((t, i, all) => all.findIndex((o) => tagKey(o) === tagKey(t)) === i)
-    .slice(0, max);
+  return (
+    [...document.querySelectorAll(selector)]
+      .map((el) => el.textContent.trim())
+      // A tag is a short label; anything longer is a chapter or a title
+      .filter((t) => t && t.length <= 60)
+      .filter((t, i, all) => all.findIndex((o) => tagKey(o) === tagKey(t)) === i)
+      .slice(0, max)
+  );
 }
 
 // First selector that yields anything wins, so a site's navigation can't get
@@ -166,11 +165,7 @@ const NU_HOST = "novelupdates.com";
 const NU_FINDER_PATH = "/series-finder";
 
 // The finder's tag filters; anything that doesn't match simply writes nothing
-const NU_FINDER_SELECTORS = [
-  "a[href*='series-finder'][href*='sh=']",
-  "input[name='tgi'] + label",
-  "#sf_tags a",
-];
+const NU_FINDER_SELECTORS = ["a[href*='series-finder'][href*='sh=']", "input[name='tgi'] + label", "#sf_tags a"];
 
 function isNuPage(pathPrefix) {
   const host = hostName();
@@ -321,11 +316,8 @@ function extractCandidates() {
 function isIndexPage() {
   const url = window.location.href.toLowerCase();
   // If URL contains chapter indicators it's a chapter page
-  const chapterIndicators = [
-    "/chapter-", "/chapter/", "/ch-", "/ch/",
-    "/episode-", "/episode/", "chapter=", "?ch="
-  ];
-  return !chapterIndicators.some(p => url.includes(p));
+  const chapterIndicators = ["/chapter-", "/chapter/", "/ch-", "/ch/", "/episode-", "/episode/", "chapter=", "?ch="];
+  return !chapterIndicators.some((p) => url.includes(p));
 }
 
 // Sites answer "no cover" with a placeholder image, and saving one leaves a broken
@@ -387,11 +379,11 @@ function extractCoverImage() {
 
   // ── Largest portrait img fallback ─────────────────────────────────────────
   const images = Array.from(document.querySelectorAll("img"))
-    .filter(img => img.src && img.src.startsWith("http"))
-    .filter(img => !isPlaceholderCover(img.src))
-    .filter(img => img.complete && img.naturalWidth > 80 && img.naturalHeight > 80)
-    .filter(img => img.naturalHeight > img.naturalWidth)
-    .sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
+    .filter((img) => img.src && img.src.startsWith("http"))
+    .filter((img) => !isPlaceholderCover(img.src))
+    .filter((img) => img.complete && img.naturalWidth > 80 && img.naturalHeight > 80)
+    .filter((img) => img.naturalHeight > img.naturalWidth)
+    .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight);
 
   if (images[0]) return images[0].src;
 
@@ -416,18 +408,20 @@ function scheduleCoverDetection(indexTitle, meta = {}) {
     const coverUrl = extractCoverImage();
     if (!coverUrl) return;
 
-    chrome.runtime.sendMessage({
-      type: "COVER_DETECTED",
-      payload: {
-        title: indexTitle,
-        coverUrl,
-        // The page's address, so a novel added from here — or linked by hand to one
-        // already in the library — can be remembered against it
-        url: window.location.href,
-        domain: hostName(),
-        ...meta,
-      }
-    }).catch((e) => console.error("[Noveltrackr] cover message failed:", e));
+    chrome.runtime
+      .sendMessage({
+        type: "COVER_DETECTED",
+        payload: {
+          title: indexTitle,
+          coverUrl,
+          // The page's address, so a novel added from here — or linked by hand to one
+          // already in the library — can be remembered against it
+          url: window.location.href,
+          domain: hostName(),
+          ...meta,
+        },
+      })
+      .catch((e) => console.error("[Noveltrackr] cover message failed:", e));
   }, 1000);
 }
 
@@ -463,7 +457,9 @@ function chapterNumber(text) {
   const spelled = spelledChapterNumber(text);
   if (spelled !== null) return spelled;
 
-  const bare = String(text || "").trim().match(/^(\d+(?:\.\d+)?)$/);
+  const bare = String(text || "")
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)$/);
   return bare ? parseFloat(bare[1]) : null;
 }
 
@@ -542,7 +538,9 @@ function latestFromMenu(current) {
 const CHAPTER_HREF = /\/(?:chapter|ch|episode)[-_/?#]|chapter=|[?&]ch=/i;
 
 function tocEntryNumber(text, href) {
-  const trimmed = String(text || "").trim().slice(0, 120);
+  const trimmed = String(text || "")
+    .trim()
+    .slice(0, 120);
   // A bare number is not enough here: page links read "3" too
   const spelled = spelledChapterNumber(trimmed);
   if (spelled !== null) return spelled;
@@ -746,10 +744,12 @@ function run() {
     const tags = firstTags(NU_FINDER_SELECTORS, MAX_VOCABULARY);
 
     if (tags.length > 0) {
-      chrome.runtime.sendMessage({
-        type: "VOCABULARY_DETECTED",
-        payload: { tags },
-      }).catch((e) => console.error("[Noveltrackr] vocabulary message failed:", e));
+      chrome.runtime
+        .sendMessage({
+          type: "VOCABULARY_DETECTED",
+          payload: { tags },
+        })
+        .catch((e) => console.error("[Noveltrackr] vocabulary message failed:", e));
     }
     return;
   }
@@ -760,10 +760,12 @@ function run() {
     const candidates = extractCandidates();
 
     if (candidates.length > 0) {
-      chrome.runtime.sendMessage({
-        type: "NU_SEARCH_DETECTED",
-        payload: { query, candidates },
-      }).catch((e) => console.error("[Noveltrackr] NU search message failed:", e));
+      chrome.runtime
+        .sendMessage({
+          type: "NU_SEARCH_DETECTED",
+          payload: { query, candidates },
+        })
+        .catch((e) => console.error("[Noveltrackr] NU search message failed:", e));
       return;
     }
   }
@@ -776,16 +778,18 @@ function run() {
     const latest = detectLatestChapters(current);
 
     const report = (observed) => {
-      chrome.runtime.sendMessage({
-        type: "CHAPTER_DETECTED",
-        payload: {
-          title: result.title,
-          chapter: result.chapter,
-          url: window.location.href,
-          domain: hostName(),
-          latest: observed,
-        }
-      }).catch((e) => console.error("[Noveltrackr] chapter message failed:", e));
+      chrome.runtime
+        .sendMessage({
+          type: "CHAPTER_DETECTED",
+          payload: {
+            title: result.title,
+            chapter: result.chapter,
+            url: window.location.href,
+            domain: hostName(),
+            latest: observed,
+          },
+        })
+        .catch((e) => console.error("[Noveltrackr] chapter message failed:", e));
     };
 
     report(latest);
@@ -818,9 +822,7 @@ function run() {
 
   if (!indexTitle) {
     const raw = document.title;
-    indexTitle = raw.includes(" | ")
-      ? raw.substring(0, raw.lastIndexOf(" | ")).trim()
-      : raw.trim();
+    indexTitle = raw.includes(" | ") ? raw.substring(0, raw.lastIndexOf(" | ")).trim() : raw.trim();
   }
 
   if (!indexTitle) return;
@@ -840,10 +842,12 @@ function run() {
   const report = (observed) => {
     if (!author && tags.length === 0 && !observed) return;
 
-    chrome.runtime.sendMessage({
-      type: "METADATA_DETECTED",
-      payload: { title: indexTitle, author, tags, source, latest: observed },
-    }).catch((e) => console.error("[Noveltrackr] metadata message failed:", e));
+    chrome.runtime
+      .sendMessage({
+        type: "METADATA_DETECTED",
+        payload: { title: indexTitle, author, tags, source, latest: observed },
+      })
+      .catch((e) => console.error("[Noveltrackr] metadata message failed:", e));
   };
 
   // NU is a database of other sites' releases, and every row is numbered by the group

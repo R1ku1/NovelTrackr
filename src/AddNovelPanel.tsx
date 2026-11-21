@@ -2,10 +2,17 @@ import { useState, useEffect } from "react";
 import {
   type Status,
   DEFAULT_STATUS,
-  FieldLabel, TextInput, TextArea, CoverImage,
-  StatusPicker, ChipInput,
-  PanelShell, PanelHeader, PanelFooter,
-  BtnPrimary, BtnSecondary,
+  FieldLabel,
+  TextInput,
+  TextArea,
+  CoverImage,
+  StatusPicker,
+  ChipInput,
+  PanelShell,
+  PanelHeader,
+  PanelFooter,
+  BtnPrimary,
+  BtnSecondary,
 } from "./formComponents";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -43,21 +50,26 @@ const EMPTY_FORM: NewNovelData = {
 // ── Fuzzy match ───────────────────────────────────────────────────────────────
 // Normalise a string for comparison: lowercase, strip punctuation, collapse spaces
 function normalise(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function levenshtein(a: string, b: string): number {
-  const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, (_, i) => 
-    Array.from({ length: n + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0)
+  const m = a.length,
+    n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
   );
-  
+
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      if (a[i-1] === b[j-1]) {
-        dp[i][j] = dp[i-1][j-1];
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
       } else {
-        dp[i][j] = 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
       }
     }
   }
@@ -69,10 +81,10 @@ function similarity(a: string, b: string): number {
   const nb = normalise(b);
   if (!na || !nb) return 0;
   if (na === nb) return 1;
-  
+
   const dist = levenshtein(na, nb);
   const maxLen = Math.max(na.length, nb.length);
-  return 1 - (dist / maxLen);
+  return 1 - dist / maxLen;
 }
 
 function findDuplicates(title: string, existing: ExistingNovel[]): ExistingNovel[] {
@@ -96,26 +108,30 @@ function DuplicateWarning({
   onDismiss: () => void;
 }) {
   return (
-    <div style={{
-      background: "#1a1410",
-      border: "1px solid #f59e0b40",
-      borderRadius: 8,
-      padding: "12px 14px",
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-    }}>
+    <div
+      style={{
+        background: "#1a1410",
+        border: "1px solid #f59e0b40",
+        borderRadius: 8,
+        padding: "12px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
         <span style={{ fontSize: 14, marginTop: 1 }}>⚠</span>
         <div>
-          <div style={{
-            fontSize: 11,
-            fontWeight: 700,
-            color: "#f59e0b",
-            letterSpacing: "0.06em",
-            marginBottom: 3,
-          }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "#f59e0b",
+              letterSpacing: "0.06em",
+              marginBottom: 3,
+            }}
+          >
             Possible duplicate
           </div>
           <div style={{ fontSize: 12, color: "#888", lineHeight: 1.4 }}>
@@ -129,14 +145,17 @@ function DuplicateWarning({
       {/* Matched novels */}
       <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingLeft: 24 }}>
         {matches.map((m) => (
-          <div key={m.id} style={{
-            fontSize: 12,
-            color: "#bbb",
-            fontStyle: "italic",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}>
+          <div
+            key={m.id}
+            style={{
+              fontSize: 12,
+              color: "#bbb",
+              fontStyle: "italic",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
             <span style={{ color: "#8a8a96", fontSize: 10 }}>—</span>
             {m.title}
           </div>
@@ -144,11 +163,13 @@ function DuplicateWarning({
       </div>
 
       {/* Actions */}
-      <div style={{
-        display: "flex",
-        gap: 8,
-        paddingLeft: 24,
-      }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          paddingLeft: 24,
+        }}
+      >
         <button
           onClick={onDismiss}
           style={{
@@ -257,15 +278,16 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
     <PanelShell visible={visible} onClose={onClose} label="Add Novel">
       <PanelHeader eyebrow="Library" title="Add Novel" onClose={onClose} />
 
-      <div style={{
-        flex: 1,
-        overflowY: "auto",
-        padding: "24px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 22,
-      }}>
-
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "24px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 22,
+        }}
+      >
         {/* Title */}
         <div>
           <FieldLabel text="Title" required />
@@ -277,9 +299,7 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
             autoFocus
           />
           {errors.title && (
-            <div style={{ fontSize: 11, color: "#f87171", marginTop: 5, paddingLeft: 2 }}>
-              {errors.title}
-            </div>
+            <div style={{ fontSize: 11, color: "#f87171", marginTop: 5, paddingLeft: 2 }}>{errors.title}</div>
           )}
 
           {/* Duplicate warning — appears below title field */}
@@ -332,27 +352,25 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
           <FieldLabel text="Cover Image URL" />
 
           {form.cover_url && (
-            <div style={{
-              width: 80,
-              height: 120,
-              marginBottom: 10,
-              borderRadius: 6,
-              overflow: "hidden",
-              border: "1px solid #2a2a35",
-              background: "#1a1a22",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}>
+            <div
+              style={{
+                width: 80,
+                height: 120,
+                marginBottom: 10,
+                borderRadius: 6,
+                overflow: "hidden",
+                border: "1px solid #2a2a35",
+                background: "#1a1a22",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
               <CoverImage url={form.cover_url} alt="Cover preview" />
             </div>
           )}
 
-          <TextInput
-            value={form.cover_url}
-            onChange={(v) => set("cover_url", v)}
-            placeholder="https://…"
-          />
+          <TextInput value={form.cover_url} onChange={(v) => set("cover_url", v)} placeholder="https://…" />
           <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
             Paste any image URL. Right-click a cover → Copy image address.
           </div>
@@ -368,7 +386,6 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
             rows={3}
           />
         </div>
-
       </div>
 
       <PanelFooter>

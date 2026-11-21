@@ -27,7 +27,7 @@ async function getPendingWithRetry(maxAttempts = 5, delayMs = 200) {
   for (let i = 0; i < maxAttempts; i++) {
     const detection = await chrome.runtime.sendMessage({ type: "GET_PENDING" });
     if (detection) return detection;
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   return null;
 }
@@ -62,9 +62,7 @@ async function getNuRelease() {
 // content. wire() runs once the whole body is in the document, and is handed the card
 // (or null) so a click knows where to report itself.
 function renderPage(body, sections) {
-  body.innerHTML = sections
-    .map(({ id, html }) => (id ? `<div class="card" id="${id}">${html}</div>` : html))
-    .join("");
+  body.innerHTML = sections.map(({ id, html }) => (id ? `<div class="card" id="${id}">${html}</div>` : html)).join("");
 
   for (const section of sections) {
     if (section.wire) section.wire(section.id ? document.getElementById(section.id) : null, body);
@@ -112,17 +110,19 @@ function coverSection(cover, { preview = false } = {}) {
     id: "coverCard",
     html: `
       <div class="detection-label">Cover Image Found</div>
-      ${preview
-        ? `<div style="margin:10px 0; text-align:center">
+      ${
+        preview
+          ? `<div style="margin:10px 0; text-align:center">
              <img src="${esc(cover.coverUrl)}" alt="Cover"
                style="max-width:120px;max-height:180px;border-radius:6px;border:1px solid #2a2a35;object-fit:cover"
                onerror="this.style.display='none';document.getElementById('coverError').style.display='block'" />
              <div id="coverError" style="display:none;font-size:11px;color:#9a9a9a;margin-top:8px">Could not load image preview</div>
            </div>`
-        : ""}
-      <div class="detected-chapter" style="margin-bottom:0">${cover.replacesCover
-        ? "A different image from the one in your library"
-        : "This novel has no cover yet"}</div>
+          : ""
+      }
+      <div class="detected-chapter" style="margin-bottom:0">${
+        cover.replacesCover ? "A different image from the one in your library" : "This novel has no cover yet"
+      }</div>
       <button class="btn-update" id="btnSaveCover" style="margin-top:10px">Save as Cover</button>
     `,
     wire: (card, body) => {
@@ -243,7 +243,7 @@ async function init() {
 
   // A series the user just picked: say what was saved, and keep the cover offer
   const saved = await getNuSaved();
-  const cover = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
+  const cover = await getCoverPending();
   if (saved) {
     await renderNuSaved(body, saved, cover);
     return;
@@ -260,8 +260,16 @@ async function init() {
 
     if (attempts > 15) {
       clearInterval(poll);
-      body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
-      await appendNuReleaseOffer(body);
+      const release = await getNuRelease();
+      if (release) {
+        renderPage(body, [
+          { id: null, html: `<div class="state-idle">No chapter detected on this page.</div>` },
+          releaseSection(release),
+          footerSection(),
+        ]);
+      } else {
+        body.innerHTML = `<div class="state-idle">No chapter detected on this page.</div>`;
+      }
       return;
     }
 
@@ -281,7 +289,7 @@ async function init() {
     }
 
     const s = await getNuSaved();
-    const c = await chrome.runtime.sendMessage({ type: "GET_COVER_PENDING" });
+    const c = await getCoverPending();
     if (s) {
       clearInterval(poll);
       await renderNuSaved(body, s, c);
@@ -311,8 +319,8 @@ async function renderKnown(body, detection) {
     <button type="button" class="not-in-library" id="btnSearch" style="margin-top:12px">Not the right novel — pick another</button>
   `;
 
-document.getElementById("btnUpdate").onclick = async () => {
-  const result = await chrome.runtime.sendMessage({
+  document.getElementById("btnUpdate").onclick = async () => {
+    const result = await chrome.runtime.sendMessage({
       type: "CONFIRM_UPDATE",
       payload: {
         novelId: detection.novelId,
@@ -322,7 +330,7 @@ document.getElementById("btnUpdate").onclick = async () => {
         detectedTitle: detection.title,
         tabId: detection.tabId,
         latest: detection.latest,
-      }
+      },
     });
 
     if (result?.error === "stale_mapping") {
@@ -384,9 +392,7 @@ function libraryRow(novel) {
   return `
     <button type="button" class="candidate" id="result-${novel.id}">
       <span class="candidate-title">${esc(novel.canonical_title)}</span>
-      ${novel.current_chapter_raw
-        ? `<span class="candidate-chapter">${esc(novel.current_chapter_raw)}</span>`
-        : ""}
+      ${novel.current_chapter_raw ? `<span class="candidate-chapter">${esc(novel.current_chapter_raw)}</span>` : ""}
     </button>
   `;
 }
@@ -399,17 +405,16 @@ async function renderLibrarySearch(body, context, back, query = "") {
 
   const matches = typed
     ? library.filter((novel) =>
-        [novel.canonical_title, ...(novel.aliases || [])]
-          .join(" ")
-          .toLowerCase()
-          .includes(typed),
+        [novel.canonical_title, ...(novel.aliases || [])].join(" ").toLowerCase().includes(typed)
       )
     : [];
 
   const shown = typed ? matches.slice(0, MAX_SEARCH_RESULTS) : await recentOn(context.domain, library);
 
   const label = !typed
-    ? shown.length ? "Recently linked on this site" : ""
+    ? shown.length
+      ? "Recently linked on this site"
+      : ""
     : !matches.length
       ? "Nothing in your library matches that"
       : `${matches.length} match${matches.length === 1 ? "" : "es"}${
@@ -437,63 +442,76 @@ async function renderLibrarySearch(body, context, back, query = "") {
       ? `<div class="state-offline">Couldn't link this page. Is the app still running?</div>`
       : `
         <div class="success">✓ Linked to ${esc(novel.canonical_title)}</div>
-        ${result.saved === false
-          ? `<div class="state-offline">Your chapter couldn't be saved — reopen this page to retry.</div>`
-          : ""}
-        ${result.scoped
-          ? `<div class="candidate-label" style="color:#9a9a9a">Chapters under ${esc(context.domain)}${esc(result.scope)} are filed here from now on.</div>`
-          : `<div class="state-offline">This page's address doesn't name one novel, so you'll have to pick it again next time.</div>`}
+        ${
+          result.saved === false
+            ? `<div class="state-offline">Your chapter couldn't be saved — reopen this page to retry.</div>`
+            : ""
+        }
+        ${
+          result.scoped
+            ? `<div class="candidate-label" style="color:#9a9a9a">Chapters under ${esc(context.domain)}${esc(result.scope)} are filed here from now on.</div>`
+            : `<div class="state-offline">This page's address doesn't name one novel, so you'll have to pick it again next time.</div>`
+        }
       `;
 
     if (result?.ok) setTimeout(window.close, 1800);
   };
 
-  renderPage(body, [
-    headerSection("Link this page", context.title, context.chapter),
-    {
-      id: null,
-      html: `<input class="search-input" id="searchInput" type="text" placeholder="Search your library" />`,
-      wire: () => {
-        const input = document.getElementById("searchInput");
-        if (!input) return;
+  renderPage(
+    body,
+    [
+      headerSection("Link this page", context.title, context.chapter),
+      {
+        id: null,
+        html: `<input class="search-input" id="searchInput" type="text" placeholder="Search your library" />`,
+        wire: () => {
+          const input = document.getElementById("searchInput");
+          if (!input) return;
 
-        input.value = query;
-        input.oninput = (event) => {
-          if (event?.isComposing) return;
-          renderLibrarySearch(body, context, back, input.value || "");
-        };
+          input.value = query;
+          input.oninput = (event) => {
+            if (event?.isComposing) return;
+            renderLibrarySearch(body, context, back, input.value || "");
+          };
 
-        // New element, same typing: focus and caret go back where they were
-        input.focus?.();
-        input.setSelectionRange?.(input.value.length, input.value.length);
+          // New element, same typing: focus and caret go back where they were
+          input.focus?.();
+          input.setSelectionRange?.(input.value.length, input.value.length);
+        },
       },
-    },
-    listed ? {
-      id: "results",
-      html: `
+      listed
+        ? {
+            id: "results",
+            html: `
         ${label ? `<div class="candidate-label" ${shown.length ? "" : `style="color:#8a8a96"`}>${esc(label)}</div>` : ""}
         ${shown.map(libraryRow).join("")}
       `,
-      wire: () => {
-        for (const novel of shown) {
-          const row = document.getElementById(`result-${novel.id}`);
-          if (row) row.onclick = () => link(novel);
-        }
+            wire: () => {
+              for (const novel of shown) {
+                const row = document.getElementById(`result-${novel.id}`);
+                if (row) row.onclick = () => link(novel);
+              }
+            },
+          }
+        : null,
+      {
+        id: "back",
+        html: `<button type="button" class="not-in-library" id="btnBack">Back</button>`,
+        wire: () => {
+          const button = document.getElementById("btnBack");
+          if (button) button.onclick = back;
+        },
       },
-    } : null,
-    {
-      id: "back",
-      html: `<button type="button" class="not-in-library" id="btnBack">Back</button>`,
-      wire: () => {
-        const button = document.getElementById("btnBack");
-        if (button) button.onclick = back;
-      },
-    },
-  ].filter(Boolean));
+    ].filter(Boolean)
+  );
 }
 
 function mappingKey(domain, title) {
-  const norm = title.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  const norm = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   return `mapping:${domain}:${norm}`;
 }
 
@@ -595,7 +613,7 @@ function renderUnknown(body, detection) {
           : `<div class="success">✓ Added to library</div>
              <div class="state-offline">Couldn't save the site link — reopen this page to retry.</div>`;
         setTimeout(window.close, 900);
-      } catch (e) {
+      } catch {
         body.innerHTML = `<div class="state-offline">Failed to connect to app.</div>`;
       }
     };
@@ -612,14 +630,16 @@ function renderUnknown(body, detection) {
   }
 
   // Has candidates
-  const candidatesHtml = matches.map(n => `
+  const candidatesHtml = matches
+    .map(
+      (n) => `
     <button type="button" class="candidate" data-id="${n.id}">
       <span class="candidate-title">${esc(n.canonical_title)}</span>
-      ${n.current_chapter_raw
-        ? `<span class="candidate-chapter">${esc(n.current_chapter_raw)}</span>`
-        : ""}
+      ${n.current_chapter_raw ? `<span class="candidate-chapter">${esc(n.current_chapter_raw)}</span>` : ""}
     </button>
-  `).join("");
+  `
+    )
+    .join("");
 
   body.innerHTML = `
     <div class="detection-label">Detected</div>
@@ -635,7 +655,7 @@ function renderUnknown(body, detection) {
     renderLibrarySearch(body, detection, () => renderUnknown(body, detection));
   };
 
-  document.querySelectorAll(".candidate").forEach(el => {
+  document.querySelectorAll(".candidate").forEach((el) => {
     el.onclick = async () => {
       const novelId = parseInt(el.dataset.id);
       await chrome.runtime.sendMessage({
@@ -648,7 +668,7 @@ function renderUnknown(body, detection) {
           detectedTitle: detection.title,
           tabId: detection.tabId,
           latest: detection.latest,
-        }
+        },
       });
       body.innerHTML = `<div class="success">✓ Progress updated</div>`;
       setTimeout(window.close, 800);
@@ -669,11 +689,15 @@ function renderNuCandidates(body, pending) {
     <div class="detection-label">NovelUpdates search</div>
     <div class="detected-title">${esc(pending.novelTitle)}</div>
     <div class="candidate-label" style="margin-top:14px">Which series is it?</div>
-    ${candidates.map((c, i) => `
+    ${candidates
+      .map(
+        (c, i) => `
       <button type="button" class="candidate" id="candidate-${i}">
         <span class="candidate-title">${esc(c.title)}</span>
       </button>
-    `).join("")}
+    `
+      )
+      .join("")}
     <button type="button" class="not-in-library" id="btnNoMatch">None of these — ignore</button>
   `;
 
@@ -707,12 +731,15 @@ async function renderNuSaved(body, saved, cover) {
   const release = await getNuRelease();
   const found = saved.count === 1 ? "1 tag filed" : `${saved.count} tags filed`;
 
-  renderPage(body, [
-    headerSection("NovelUpdates · Tags", saved.novelTitle, `${found} with this novel`),
-    cover && cover.type === "cover" ? coverSection(cover) : null,
-    release ? releaseSection(release) : null,
-    footerSection(),
-  ].filter(Boolean));
+  renderPage(
+    body,
+    [
+      headerSection("NovelUpdates · Tags", saved.novelTitle, `${found} with this novel`),
+      cover && cover.type === "cover" ? coverSection(cover) : null,
+      release ? releaseSection(release) : null,
+      footerSection(),
+    ].filter(Boolean)
+  );
 }
 
 async function renderCoverPrompt(body, cover) {
@@ -723,12 +750,15 @@ async function renderCoverPrompt(body, cover) {
 
   const release = await getNuRelease();
 
-  renderPage(body, [
-    headerSection("Cover Image Found", cover.novelTitle),
-    coverSection(cover, { preview: true }),
-    release ? releaseSection(release) : null,
-    footerSection(),
-  ].filter(Boolean));
+  renderPage(
+    body,
+    [
+      headerSection("Cover Image Found", cover.novelTitle),
+      coverSection(cover, { preview: true }),
+      release ? releaseSection(release) : null,
+      footerSection(),
+    ].filter(Boolean)
+  );
 }
 // Page metadata rides along with the add, but only when the page offered it
 function pageMetadata(source) {
@@ -753,7 +783,9 @@ function renderAddPrompt(body, cover) {
   body.innerHTML = `
     <div class="detection-label">Novel Found</div>
     <div class="detected-title">${esc(cover.title)}</div>
-    ${cover.coverUrl ? `
+    ${
+      cover.coverUrl
+        ? `
     <div style="margin: 12px 0; text-align: center;">
       <img
         src="${esc(cover.coverUrl)}"
@@ -761,7 +793,9 @@ function renderAddPrompt(body, cover) {
         style="max-width: 120px; max-height: 180px; border-radius: 6px; border: 1px solid #2a2a35; object-fit: cover;"
         onerror="this.style.display='none'"
       />
-    </div>` : ""}
+    </div>`
+        : ""
+    }
     <div class="candidate-label" style="color:#9a9a9a">
       Not in your library.${carried.length ? ` Its ${carried.join(" and ")} come with it.` : ""}
     </div>
@@ -834,9 +868,7 @@ function renderDuplicatePrompt(body, pending, duplicate) {
   body.innerHTML = `
     <div class="detection-label">Already in your library</div>
     <div class="detected-title">${esc(duplicate.novel_title)}</div>
-    ${hasChapter
-      ? `<div class="detected-chapter">${esc(pending.chapter)}</div>`
-      : ""}
+    ${hasChapter ? `<div class="detected-chapter">${esc(pending.chapter)}</div>` : ""}
     <div class="candidate-label" style="margin-top:12px; color:#9a9a9a">
       "${esc(pending.title)}" matched this novel, so nothing new was added.
     </div>

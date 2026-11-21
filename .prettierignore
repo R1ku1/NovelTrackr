@@ -1,0 +1,15 @@
+dist
+node_modules
+src-tauri/target
+src-tauri/gen
+.vscode
+package-lock.json
+extension.zip
+brag-output
+graphify-out
+store-assets
+images
+*.md
+*.msi
+*.exe
+*.zip

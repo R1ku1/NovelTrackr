@@ -50,8 +50,16 @@ check("the stats read the sources and backlog that are already recorded", () => 
 });
 
 check("an unknown latest chapter is never shown as zero", () => {
-  assert.match(app, /unreadChapters\(novel\.latest_chapter, novel\.chapter_sort\)/, "the badge ignores the shared rule");
-  assert.match(app, /if \(unread === null \|\| unread === 0\) return null/, "the badge shows something when nothing is known");
+  assert.match(
+    app,
+    /unreadChapters\(novel\.latest_chapter, novel\.chapter_sort\)/,
+    "the badge ignores the shared rule"
+  );
+  assert.match(
+    app,
+    /if \(unread === null \|\| unread === 0\) return null/,
+    "the badge shows something when nothing is known"
+  );
   assert.match(app, /progressPercent\(novel\.chapter_sort, novel\.total_chapters\)/, "no per-novel progress bar");
   assert.match(stats, /stats\.unread\.known > 0/, "the headline doesn't check its own coverage");
   assert.match(stats, /have known data/, "the headline doesn't say how much it knows about");
@@ -70,7 +78,10 @@ check("a floor is never drawn as a proportion", () => {
 
 check("the 30-day staleness rule lives in one place", () => {
   assert.match(latest, /export const STALE_AFTER_DAYS = 30/, "the threshold moved or changed");
-  for (const [name, file] of [["App.tsx", app], ["EditNovelPanel.tsx", edit]]) {
+  for (const [name, file] of [
+    ["App.tsx", app],
+    ["EditNovelPanel.tsx", edit],
+  ]) {
     assert.match(file, /from "\.\/latest"/, `${name} doesn't use the shared rule`);
   }
   assert.ok(!/86_400|86400/.test(app + edit + stats), "a second copy of the staleness maths appeared");
@@ -84,7 +95,7 @@ check("the extension reports a latest chapter only when a page showed one", () =
   assert.match(
     background,
     /if \(!latest \|\| typeof latest\.latest_chapter !== "number"\) return \{\}/,
-    "a page with no evidence would still send fields",
+    "a page with no evidence would still send fields"
   );
   assert.match(background, /\.\.\.latestFields\(latest\)/, "the observation never reaches the routes");
   assert.match(popup, /latest: detection\.latest/, "the popup drops what the page reported");
@@ -116,10 +127,7 @@ check("add is a labelled floating button", () => {
   assert.match(app, /aria-label="Add novel"/);
   // The icon is drawn, not typed — a font's "+" is never optically centred
   assert.match(app, /function AddButton[\s\S]{0,800}?<svg/, "the add icon is a text glyph again");
-  assert.ok(
-    !/getFabStyle[\s\S]{0,400}?fontSize/.test(app),
-    "the FAB is nudging a text glyph with font metrics again",
-  );
+  assert.ok(!/getFabStyle[\s\S]{0,400}?fontSize/.test(app), "the FAB is nudging a text glyph with font metrics again");
 });
 
 // ── Dialogs ───────────────────────────────────────────────────────────────────
@@ -170,7 +178,7 @@ check("clickable rows and cards have a keyboard path", () => {
   assert.match(
     app,
     /role="button"[\s\S]{0,240}?aria-label=\{`Edit \$\{n\.canonical_title\}`\}/,
-    "the compact cards are unnamed buttons",
+    "the compact cards are unnamed buttons"
   );
 });
 
@@ -182,7 +190,11 @@ check("the notice is a live region", () => {
 // ── Covers ────────────────────────────────────────────────────────────────────
 check("covers render through the one shared component", () => {
   assert.match(forms, /export function CoverImage/);
-  for (const [name, file] of [["App.tsx", app], ["AddNovelPanel.tsx", add], ["EditNovelPanel.tsx", edit]]) {
+  for (const [name, file] of [
+    ["App.tsx", app],
+    ["AddNovelPanel.tsx", add],
+    ["EditNovelPanel.tsx", edit],
+  ]) {
     assert.match(file, /<CoverImage /, `${name} renders a cover by hand`);
     assert.ok(!/document\.createElement/.test(file), `${name} mutates the DOM when an image fails`);
   }
@@ -253,8 +265,13 @@ check("five stars wear a foil frame, and never rely on motion or colour alone", 
 });
 // ── Styling and motion ────────────────────────────────────────────────────────
 check("no blanket transitions or unset outlines", () => {
-  const files = [["App.tsx", app], ["formComponents.tsx", forms], ["StatsPanel.tsx", stats],
-    ["AddNovelPanel.tsx", add], ["EditNovelPanel.tsx", edit]];
+  const files = [
+    ["App.tsx", app],
+    ["formComponents.tsx", forms],
+    ["StatsPanel.tsx", stats],
+    ["AddNovelPanel.tsx", add],
+    ["EditNovelPanel.tsx", edit],
+  ];
   for (const [name, file] of files) {
     assert.ok(!/transition:\s*"all/.test(file), `${name}: transition: all`);
     assert.ok(!/outline:\s*"none"/.test(file), `${name}: outline: none with nothing in its place`);
@@ -288,7 +305,7 @@ for (const [name, fn] of checks) {
     console.error(`  FAIL ${name}\n       ${e.message}`);
   }
 }
-console.log(failed === 0
-  ? `\n${checks.length} frontend checks passed.`
-  : `\n${failed} of ${checks.length} checks failed.`);
+console.log(
+  failed === 0 ? `\n${checks.length} frontend checks passed.` : `\n${failed} of ${checks.length} checks failed.`
+);
 process.exit(failed === 0 ? 0 : 1);

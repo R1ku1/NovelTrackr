@@ -40,9 +40,7 @@ function parseTags(raw: string | null): string[] {
 // ── Tag vocabulary (NovelUpdates' canonical tag list) ─────────────────────────
 export async function getTagVocabulary(): Promise<string[]> {
   const db = await getDb();
-  const rows = await db.select<{ name: string }[]>(
-    `SELECT name FROM tag_vocabulary ORDER BY name COLLATE NOCASE`
-  );
+  const rows = await db.select<{ name: string }[]>(`SELECT name FROM tag_vocabulary ORDER BY name COLLATE NOCASE`);
   return rows.map((r) => r.name);
 }
 
@@ -56,12 +54,7 @@ const STATUS_ACTIONS: Record<string, string> = {
   paused: "paused",
 };
 
-async function logReading(
-  db: Database,
-  novelId: number,
-  action: string,
-  chapter: number | null
-): Promise<void> {
+async function logReading(db: Database, novelId: number, action: string, chapter: number | null): Promise<void> {
   await db.execute(
     `INSERT INTO reading_log (novel_id, action, chapter, timestamp)
      VALUES ($1, $2, $3, strftime('%s','now'))`,
@@ -80,12 +73,14 @@ async function novelBefore(
   tags: string | null;
   tag_source: string | null;
 }> {
-  const rows = await db.select<{
-    status: string;
-    chapter_raw: string | null;
-    tags: string | null;
-    tag_source: string | null;
-  }[]>(
+  const rows = await db.select<
+    {
+      status: string;
+      chapter_raw: string | null;
+      tags: string | null;
+      tag_source: string | null;
+    }[]
+  >(
     `SELECT n.status, n.tags, n.tag_source, p.chapter_raw
      FROM novels n
      LEFT JOIN progress p ON p.novel_id = n.id
@@ -122,9 +117,7 @@ export async function getAllNovels(): Promise<NovelRow[]> {
   `);
 
   // Fetch aliases separately and attach
-  const aliases = await db.select<{ novel_id: number; alias: string }[]>(
-    `SELECT novel_id, alias FROM aliases`
-  );
+  const aliases = await db.select<{ novel_id: number; alias: string }[]>(`SELECT novel_id, alias FROM aliases`);
 
   // Group once — filtering per novel inside the map is O(novels × aliases)
   const aliasesByNovel = new Map<number, string[]>();
@@ -180,10 +173,7 @@ export async function addNovel(data: {
 
   // Insert aliases
   for (const alias of data.aliases) {
-    await db.execute(
-      `INSERT INTO aliases (novel_id, alias) VALUES ($1, $2)`,
-      [novelId, alias]
-    );
+    await db.execute(`INSERT INTO aliases (novel_id, alias) VALUES ($1, $2)`, [novelId, alias]);
   }
 
   return novelId;
@@ -263,16 +253,16 @@ export async function updateNovel(data: {
   // Save source URL if provided
   if (data.last_seen_url.trim()) {
     const domain = (() => {
-      try { return new URL(data.last_seen_url).hostname.replace("www.", ""); }
-      catch { return ""; }
+      try {
+        return new URL(data.last_seen_url).hostname.replace("www.", "");
+      } catch {
+        return "";
+      }
     })();
 
     if (domain) {
       // Only one preferred source per novel — the list view reads with LIMIT 1
-      await db.execute(
-        `UPDATE sources SET is_preferred=0 WHERE novel_id=$1`,
-        [data.id]
-      );
+      await db.execute(`UPDATE sources SET is_preferred=0 WHERE novel_id=$1`, [data.id]);
       await db.execute(
         `INSERT INTO sources (novel_id, domain, url_pattern, last_seen_url, last_seen_at, is_preferred)
          VALUES ($1, $2, $2, $3, datetime('now'), 1)
@@ -288,18 +278,12 @@ export async function updateNovel(data: {
   // Replace aliases — delete all then reinsert
   await db.execute(`DELETE FROM aliases WHERE novel_id=$1`, [data.id]);
   for (const alias of data.aliases) {
-    await db.execute(
-      `INSERT INTO aliases (novel_id, alias) VALUES ($1, $2)`,
-      [data.id, alias]
-    );
+    await db.execute(`INSERT INTO aliases (novel_id, alias) VALUES ($1, $2)`, [data.id, alias]);
   }
 }
 
 // ── Update progress only (quick update) ──────────────────────────────────────
-export async function updateProgress(
-  novelId: number,
-  chapterRaw: string
-): Promise<void> {
+export async function updateProgress(novelId: number, chapterRaw: string): Promise<void> {
   const db = await getDb();
   const chapterSort = parseChapterSort(chapterRaw);
   const before = await novelBefore(db, novelId);
@@ -368,12 +352,11 @@ export async function exportLibrary(): Promise<string> {
   return JSON.stringify(data, null, 2);
 }
 
-
 export async function exportToFile(): Promise<boolean> {
   const json = await exportLibrary();
-  
+
   const path = await save({
-    defaultPath: `noveltrackr-backup-${new Date().toISOString().slice(0,10)}.json`,
+    defaultPath: `noveltrackr-backup-${new Date().toISOString().slice(0, 10)}.json`,
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
 

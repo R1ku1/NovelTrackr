@@ -171,7 +171,12 @@ pub fn build_stats(db_path: &str) -> Result<Stats, String> {
     let (current_streak, longest_streak, active_days) = streaks(&activity);
 
     let chapters: i64 = activity.iter().map(|day| day.chapters).sum();
-    let chapters_30d: i64 = activity.iter().rev().take(PACE_DAYS).map(|day| day.chapters).sum();
+    let chapters_30d: i64 = activity
+        .iter()
+        .rev()
+        .take(PACE_DAYS)
+        .map(|day| day.chapters)
+        .sum();
 
     Ok(Stats {
         status_counts,
@@ -251,9 +256,11 @@ pub fn novel_history(db_path: &str, novel_id: i64) -> Result<NovelHistory, Strin
         )
         .map_err(|e| e.to_string())?;
 
-    Ok(NovelHistory { chapters_30d, entries })
+    Ok(NovelHistory {
+        chapters_30d,
+        entries,
+    })
 }
-
 
 /// Chapters gained by each `progressed` entry: how far the chapter moved since
 /// that novel's previous logged chapter, so a jump from 1 to 5 counts as four
@@ -318,7 +325,11 @@ fn daily_activity(conn: &Connection) -> Result<Vec<Day>, String> {
 
     let rows = stmt
         .query_map([format!("-{} days", ACTIVITY_DAYS - 1)], |row| {
-            Ok(Day { date: row.get(0)?, entries: row.get(1)?, chapters: row.get(2)? })
+            Ok(Day {
+                date: row.get(0)?,
+                entries: row.get(1)?,
+                chapters: row.get(2)?,
+            })
         })
         .map_err(|e| e.to_string())?;
 
@@ -338,7 +349,12 @@ fn library_counts(conn: &Connection) -> Result<(Vec<StatusCount>, i64, i64), Str
         .map_err(|e| e.to_string())?;
 
     let status_counts: Vec<StatusCount> = stmt
-        .query_map([], |row| Ok(StatusCount { status: row.get(0)?, count: row.get(1)? }))
+        .query_map([], |row| {
+            Ok(StatusCount {
+                status: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
@@ -366,7 +382,11 @@ fn log_span(conn: &Connection) -> Result<(i64, Option<String>), String> {
         .map_err(|e| e.to_string())?;
 
     let first: Option<String> = conn
-        .query_row("SELECT date(MIN(timestamp), 'unixepoch') FROM reading_log", [], |row| row.get(0))
+        .query_row(
+            "SELECT date(MIN(timestamp), 'unixepoch') FROM reading_log",
+            [],
+            |row| row.get(0),
+        )
         .map_err(|e| e.to_string())?;
 
     Ok((entries, first))
@@ -390,7 +410,9 @@ fn completion_counts(conn: &Connection) -> Result<(i64, i64), String> {
     let mut completed = 0;
     let mut dropped = 0;
     for row in stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
     {
@@ -470,7 +492,10 @@ fn drop_buckets(conn: &Connection) -> Result<Vec<Bucket>, String> {
         .iter()
         .map(|(label, low, high)| Bucket {
             label: label.to_string(),
-            count: chapters.iter().filter(|c| **c >= *low && **c < *high).count() as i64,
+            count: chapters
+                .iter()
+                .filter(|c| **c >= *low && **c < *high)
+                .count() as i64,
         })
         .collect())
 }
@@ -492,13 +517,15 @@ fn drop_reasons(conn: &Connection) -> Result<Vec<Bucket>, String> {
 
     let rows = stmt
         .query_map([TOP_REASONS as i64], |row| {
-            Ok(Bucket { label: row.get(0)?, count: row.get(1)? })
+            Ok(Bucket {
+                label: row.get(0)?,
+                count: row.get(1)?,
+            })
         })
         .map_err(|e| e.to_string())?;
 
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
-
 
 /// Which sites the library is actually read on. Preferred sources only — the
 /// extension keeps exactly one per novel, so nothing is counted twice.
@@ -518,7 +545,11 @@ fn source_stats(conn: &Connection) -> Result<Vec<SourceStat>, String> {
 
     let rows = stmt
         .query_map([], |row| {
-            Ok(SourceStat { domain: row.get(0)?, novels: row.get(1)?, chapters: row.get(2)? })
+            Ok(SourceStat {
+                domain: row.get(0)?,
+                novels: row.get(1)?,
+                chapters: row.get(2)?,
+            })
         })
         .map_err(|e| e.to_string())?;
 
@@ -613,8 +644,7 @@ fn per_day(chapters: i64, days: i64) -> f64 {
 /// what make the headline honest about its own coverage.
 fn unread(conn: &Connection) -> Result<Unread, String> {
     conn.query_row(
-        &format!(
-            "WITH gaps AS (
+        r#"WITH gaps AS (
                SELECT n.latest_chapter - p.chapter_sort AS gap
                FROM novels n
                JOIN progress p ON p.novel_id = n.id
@@ -630,8 +660,7 @@ fn unread(conn: &Connection) -> Result<Unread, String> {
                         AND (latest_chapter_seen_at IS NULL
                              OR latest_chapter_seen_at < strftime('%s','now') - ?1)),
                     (SELECT COUNT(*) FROM gaps),
-                    (SELECT COALESCE(CAST(ROUND(SUM(gap)) AS INTEGER), 0) FROM gaps)"
-        ),
+                    (SELECT COALESCE(CAST(ROUND(SUM(gap)) AS INTEGER), 0) FROM gaps)"#,
         rusqlite::params![STALE_DAYS * 86_400],
         |row| {
             Ok(Unread {
@@ -667,7 +696,10 @@ fn backlog(conn: &Connection) -> Result<Backlog, String> {
         .iter()
         .map(|(label, low, high)| Bucket {
             label: label.to_string(),
-            count: ages.iter().filter(|days| **days >= *low && **days < *high).count() as i64,
+            count: ages
+                .iter()
+                .filter(|days| **days >= *low && **days < *high)
+                .count() as i64,
         })
         .collect();
 
@@ -725,7 +757,14 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
 
     let rows: Vec<(String, i64, i64, i64, i64, Option<f64>)> = stmt
         .query_map([TOP_TAGS as i64], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
         })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
@@ -750,19 +789,21 @@ fn tag_stats(conn: &Connection) -> Result<Vec<TagStat>, String> {
 
     Ok(rows
         .into_iter()
-        .map(|(tag, novels, completed, dropped, rated, avg_rating)| TagStat {
-            chapters: chapters
-                .iter()
-                .find(|(name, _)| name == &tag)
-                .map(|(_, count)| *count)
-                .unwrap_or(0),
-            tag,
-            novels,
-            completed,
-            dropped,
-            rated,
-            avg_rating,
-        })
+        .map(
+            |(tag, novels, completed, dropped, rated, avg_rating)| TagStat {
+                chapters: chapters
+                    .iter()
+                    .find(|(name, _)| name == &tag)
+                    .map(|(_, count)| *count)
+                    .unwrap_or(0),
+                tag,
+                novels,
+                completed,
+                dropped,
+                rated,
+                avg_rating,
+            },
+        )
         .collect())
 }
 
@@ -802,14 +843,16 @@ fn tag_years(conn: &Connection) -> Result<Vec<YearTag>, String> {
                 if years.len() == TOP_YEARS {
                     break;
                 }
-                years.push(YearTag { year, tags: vec![Bucket { label: tag, count }] });
+                years.push(YearTag {
+                    year,
+                    tags: vec![Bucket { label: tag, count }],
+                });
             }
         }
     }
 
     Ok(years)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -827,7 +870,8 @@ mod tests {
 
     /// A throwaway database with the real schema, as an install would have it
     fn fresh_db(name: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("nt-stats-{}-{}.db", name, std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("nt-stats-{}-{}.db", name, std::process::id()));
         let _ = std::fs::remove_file(&path);
 
         let conn = Connection::open(&path).unwrap();
@@ -850,7 +894,8 @@ mod tests {
                ('Planned One', 'planned', NULL),
                ('Dropped One', 'dropped', '[\"Weak to Strong\"]')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Chapters on three consecutive days, plus a completion and a drop
         conn.execute_batch(
@@ -860,7 +905,8 @@ mod tests {
                (1, 'progressed', 20, strftime('%s','now') - 1 * 86400),
                (2, 'completed',  80, strftime('%s','now') - 2 * 86400),
                (4, 'dropped',    30, strftime('%s','now') - 4 * 86400)",
-        ).unwrap();
+        )
+        .unwrap();
 
         path
     }
@@ -870,11 +916,18 @@ mod tests {
         let path = seeded_db("activity");
         let stats = build_stats(path.to_str().unwrap()).unwrap();
 
-        assert_eq!(stats.activity.len(), ACTIVITY_DAYS as usize, "the heatmap wants a full year of days");
+        assert_eq!(
+            stats.activity.len(),
+            ACTIVITY_DAYS as usize,
+            "the heatmap wants a full year of days"
+        );
         assert_eq!(stats.log_entries, 5);
         assert_eq!(stats.active_days, 4, "four distinct days carry entries");
         assert_eq!(stats.longest_streak, 4);
-        assert_eq!(stats.current_streak, 4, "today is still unlogged, so the streak runs to yesterday");
+        assert_eq!(
+            stats.current_streak, 4,
+            "today is still unlogged, so the streak runs to yesterday"
+        );
         assert!(stats.first_entry.is_some());
 
         // The log moved 1 → 10 → 20, so it holds 19 chapters of reading, not two
@@ -889,10 +942,15 @@ mod tests {
 
         assert_eq!(stats.weeks.len(), PACE_WEEKS);
         assert_eq!(
-            stats.weeks.last().unwrap().chapters, 19,
+            stats.weeks.last().unwrap().chapters,
+            19,
             "the week ending today holds every chapter the log moved"
         );
-        assert_eq!(stats.weeks[stats.weeks.len() - 2].chapters, 0, "the week before it is empty");
+        assert_eq!(
+            stats.weeks[stats.weeks.len() - 2].chapters,
+            0,
+            "the week before it is empty"
+        );
         assert_eq!(stats.weeks.iter().map(|w| w.chapters).sum::<i64>(), 19);
 
         let _ = std::fs::remove_file(&path);
@@ -911,7 +969,8 @@ mod tests {
                ('Corrected', 'reading'), ('Small Step', 'reading'),
                ('Half Chapter', 'reading')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         conn.execute_batch(
             "INSERT INTO reading_log (novel_id, action, chapter, timestamp) VALUES
@@ -924,19 +983,28 @@ mod tests {
                (4, 'progressed', 12, strftime('%s','now') - 2 * 86400),
                (5, 'started',    20, strftime('%s','now') - 4 * 86400),
                (5, 'progressed', 21.5, strftime('%s','now') - 3 * 86400)",
-        ).unwrap();
+        )
+        .unwrap();
 
         let stats = build_stats(path.to_str().unwrap()).unwrap();
         let day = |days_ago: usize| &stats.activity[stats.activity.len() - 1 - days_ago];
 
         assert_eq!(
-            day(1).chapters, 5,
+            day(1).chapters,
+            5,
             "1 → 5 is four chapters, plus one for the novel with no earlier chapter, \
              and the backwards correction adds nothing"
         );
         assert_eq!(day(2).chapters, 2, "10 → 12 is two chapters");
-        assert_eq!(day(3).chapters, 2, "20 → 21.5 rounds to the nearest whole chapter");
-        assert_eq!(stats.chapters_30d, 9, "the pace numbers follow the per-day counts");
+        assert_eq!(
+            day(3).chapters,
+            2,
+            "20 → 21.5 rounds to the nearest whole chapter"
+        );
+        assert_eq!(
+            stats.chapters_30d, 9,
+            "the pace numbers follow the per-day counts"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -962,7 +1030,10 @@ mod tests {
             ],
             "newest first, and only progress entries carry chapters"
         );
-        assert_eq!(history.chapters_30d, 19, "the same 30-day window as the pace card");
+        assert_eq!(
+            history.chapters_30d, 19,
+            "the same 30-day window as the pace card"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -979,7 +1050,10 @@ mod tests {
 
         // Only novel 1 ever progressed in the seeded library
         assert_eq!(logged, 19, "1 → 10 → 20");
-        assert_eq!(logged, charted, "a novel's log is the chart's data, counted once");
+        assert_eq!(
+            logged, charted,
+            "a novel's log is the chart's data, counted once"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1034,7 +1108,10 @@ mod tests {
             ]
         );
         assert_eq!(stats.total_novels, 4);
-        assert_eq!(stats.tagged_novels, 3, "the untagged planned novel doesn't count");
+        assert_eq!(
+            stats.tagged_novels, 3,
+            "the untagged planned novel doesn't count"
+        );
 
         // Completion reads each novel's latest status action
         assert_eq!((stats.completed, stats.dropped), (1, 1));
@@ -1087,7 +1164,10 @@ mod tests {
 
         // Nothing in the seeded library has been rated
         assert!(
-            stats.tag_stats.iter().all(|t| t.rated == 0 && t.avg_rating.is_none()),
+            stats
+                .tag_stats
+                .iter()
+                .all(|t| t.rated == 0 && t.avg_rating.is_none()),
             "an unrated novel must not invent an average"
         );
 
@@ -1106,14 +1186,24 @@ mod tests {
         assert_eq!((stats.current_streak, stats.longest_streak), (0, 0));
         assert_eq!((stats.completed, stats.dropped), (0, 0));
         assert_eq!(stats.chapters_per_day, 0.0);
-        assert_eq!(stats.weeks.len(), PACE_WEEKS, "the chart keeps its shape with no data");
+        assert_eq!(
+            stats.weeks.len(),
+            PACE_WEEKS,
+            "the chart keeps its shape with no data"
+        );
         assert!(stats.activity.iter().all(|d| d.entries == 0));
         assert!(stats.tag_stats.is_empty());
         assert!(stats.tag_years.is_empty());
         assert!(stats.drop_reasons.is_empty());
         assert_eq!(
             stats.unread,
-            Unread { chapters: 0, novels: 0, known: 0, stale: 0, total: 0 },
+            Unread {
+                chapters: 0,
+                novels: 0,
+                known: 0,
+                stale: 0,
+                total: 0
+            },
             "an empty library is not behind on anything"
         );
 
@@ -1171,13 +1261,20 @@ mod tests {
             .collect();
         assert_eq!(
             reading,
-            vec![("Halfway".to_string(), 49, 1), ("Current".to_string(), 9, 1)]
+            vec![
+                ("Halfway".to_string(), 49, 1),
+                ("Current".to_string(), 9, 1)
+            ]
         );
 
         let fastest = &stats.fastest_finishes;
         assert_eq!(fastest.len(), 1, "only finished novels are ranked");
         assert_eq!(fastest[0].title, "Halfway");
-        assert_eq!((fastest[0].chapters, fastest[0].days), (49, 5), "1 → 50 over five days");
+        assert_eq!(
+            (fastest[0].chapters, fastest[0].days),
+            (49, 5),
+            "1 → 50 over five days"
+        );
         assert!((fastest[0].per_day - 9.8).abs() < 0.0001);
 
         let buckets: Vec<(String, i64)> = stats
@@ -1216,7 +1313,11 @@ mod tests {
                     .sum::<i64>()
             })
             .sum();
-        assert_eq!(litrpg, 49 + 9, "the years add up to what the tag accounts for");
+        assert_eq!(
+            litrpg,
+            49 + 9,
+            "the years add up to what the tag accounts for"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1259,7 +1360,10 @@ mod tests {
             .collect();
         assert_eq!(
             reasons,
-            vec![("Lost interest".to_string(), 2), ("Too slow".to_string(), 1)],
+            vec![
+                ("Lost interest".to_string(), 2),
+                ("Too slow".to_string(), 1)
+            ],
             "biggest reason first"
         );
 
@@ -1295,10 +1399,19 @@ mod tests {
         let unread = &stats.unread;
 
         assert_eq!(unread.chapters, 20 + 50, "400 to 420, and 450 to 500");
-        assert_eq!(unread.novels, 2, "the finished novel is not a backlog to clear");
+        assert_eq!(
+            unread.novels, 2,
+            "the finished novel is not a backlog to clear"
+        );
         assert_eq!(unread.known, 4, "four novels have a number at all");
-        assert_eq!(unread.stale, 1, "only one has gone unconfirmed for 30+ days");
-        assert_eq!(unread.total, 5, "the coverage the headline reports itself against");
+        assert_eq!(
+            unread.stale, 1,
+            "only one has gone unconfirmed for 30+ days"
+        );
+        assert_eq!(
+            unread.total, 5,
+            "the coverage the headline reports itself against"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -1306,7 +1419,10 @@ mod tests {
     /// The badge and the headline have to agree on when a number is old
     #[test]
     fn the_staleness_threshold_is_thirty_days() {
-        assert_eq!(STALE_DAYS, 30, "changing this changes what the library greys out");
+        assert_eq!(
+            STALE_DAYS, 30,
+            "changing this changes what the library greys out"
+        );
 
         let path = fresh_db("stale-threshold");
         let conn = Connection::open(&path).unwrap();
@@ -1333,4 +1449,3 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 }
-
