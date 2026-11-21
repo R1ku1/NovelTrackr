@@ -117,7 +117,7 @@ function coverSection(cover, { preview = false } = {}) {
              <img src="${esc(cover.coverUrl)}" alt="Cover"
                style="max-width:120px;max-height:180px;border-radius:6px;border:1px solid #2a2a35;object-fit:cover"
                onerror="this.style.display='none';document.getElementById('coverError').style.display='block'" />
-             <div id="coverError" style="display:none;font-size:11px;color:#555;margin-top:8px">Could not load image preview</div>
+             <div id="coverError" style="display:none;font-size:11px;color:#9a9a9a;margin-top:8px">Could not load image preview</div>
            </div>`
         : ""}
       <div class="detected-chapter" style="margin-bottom:0">${cover.replacesCover
@@ -196,6 +196,7 @@ async function init() {
 
   const running = await isAppRunning();
   dot.className = `status-dot ${running ? "online" : "offline"}`;
+  dot.setAttribute("aria-label", running ? "Noveltrackr app connected" : "Noveltrackr app not running");
 
   if (!running) {
     body.innerHTML = `<div class="state-offline">Noveltrackr is not running.<br>Open the desktop app first.</div>`;
@@ -307,7 +308,7 @@ async function renderKnown(body, detection) {
     <div class="detected-chapter">${esc(detection.chapter)}</div>
     <button class="btn-update" id="btnUpdate">Update Progress</button>
     <button class="btn-ignore" id="btnIgnore">Ignore</button>
-    <div class="not-in-library" id="btnSearch" style="margin-top:12px">Not the right novel — pick another</div>
+    <button type="button" class="not-in-library" id="btnSearch" style="margin-top:12px">Not the right novel — pick another</button>
   `;
 
 document.getElementById("btnUpdate").onclick = async () => {
@@ -381,12 +382,12 @@ async function recentOn(domain, library) {
 
 function libraryRow(novel) {
   return `
-    <div class="candidate" id="result-${novel.id}">
-      <div class="candidate-title">${esc(novel.canonical_title)}</div>
+    <button type="button" class="candidate" id="result-${novel.id}">
+      <span class="candidate-title">${esc(novel.canonical_title)}</span>
       ${novel.current_chapter_raw
-        ? `<div class="candidate-chapter">${esc(novel.current_chapter_raw)}</div>`
+        ? `<span class="candidate-chapter">${esc(novel.current_chapter_raw)}</span>`
         : ""}
-    </div>
+    </button>
   `;
 }
 
@@ -440,7 +441,7 @@ async function renderLibrarySearch(body, context, back, query = "") {
           ? `<div class="state-offline">Your chapter couldn't be saved — reopen this page to retry.</div>`
           : ""}
         ${result.scoped
-          ? `<div class="candidate-label" style="color:#555">Chapters under ${esc(context.domain)}${esc(result.scope)} are filed here from now on.</div>`
+          ? `<div class="candidate-label" style="color:#9a9a9a">Chapters under ${esc(context.domain)}${esc(result.scope)} are filed here from now on.</div>`
           : `<div class="state-offline">This page's address doesn't name one novel, so you'll have to pick it again next time.</div>`}
       `;
 
@@ -470,7 +471,7 @@ async function renderLibrarySearch(body, context, back, query = "") {
     listed ? {
       id: "results",
       html: `
-        ${label ? `<div class="candidate-label" ${shown.length ? "" : `style="color:#444"`}>${esc(label)}</div>` : ""}
+        ${label ? `<div class="candidate-label" ${shown.length ? "" : `style="color:#8a8a96"`}>${esc(label)}</div>` : ""}
         ${shown.map(libraryRow).join("")}
       `,
       wire: () => {
@@ -482,7 +483,7 @@ async function renderLibrarySearch(body, context, back, query = "") {
     } : null,
     {
       id: "back",
-      html: `<div class="not-in-library" id="btnBack">Back</div>`,
+      html: `<button type="button" class="not-in-library" id="btnBack">Back</button>`,
       wire: () => {
         const button = document.getElementById("btnBack");
         if (button) button.onclick = back;
@@ -543,7 +544,7 @@ function renderUnknown(body, detection) {
       <div class="detection-label">Detected</div>
       <div class="detected-title">${esc(detection.title)}</div>
       <div class="detected-chapter">${esc(detection.chapter)}</div>
-      <div class="candidate-label" style="margin-top:12px; color: #555">
+      <div class="candidate-label" style="margin-top:12px; color: #9a9a9a">
         Not found in your library. Pick it by name instead.
       </div>
       <button class="btn-update" id="btnAdd" style="margin-top:12px">
@@ -612,12 +613,12 @@ function renderUnknown(body, detection) {
 
   // Has candidates
   const candidatesHtml = matches.map(n => `
-    <div class="candidate" data-id="${n.id}">
-      <div class="candidate-title">${esc(n.canonical_title)}</div>
+    <button type="button" class="candidate" data-id="${n.id}">
+      <span class="candidate-title">${esc(n.canonical_title)}</span>
       ${n.current_chapter_raw
-        ? `<div class="candidate-chapter">${esc(n.current_chapter_raw)}</div>`
+        ? `<span class="candidate-chapter">${esc(n.current_chapter_raw)}</span>`
         : ""}
-    </div>
+    </button>
   `).join("");
 
   body.innerHTML = `
@@ -626,8 +627,8 @@ function renderUnknown(body, detection) {
     <div class="detected-chapter">${esc(detection.chapter)}</div>
     <div class="candidate-label" style="margin-top:14px">Which novel is this?</div>
     ${candidatesHtml}
-    <div class="not-in-library" id="btnSearch" style="margin-top:10px">None of these — search my library</div>
-    <div class="not-in-library" id="btnIgnore">Not in my library — ignore</div>
+    <button type="button" class="not-in-library" id="btnSearch" style="margin-top:10px">None of these — search my library</button>
+    <button type="button" class="not-in-library" id="btnIgnore">Not in my library — ignore</button>
   `;
 
   document.getElementById("btnSearch").onclick = () => {
@@ -669,11 +670,11 @@ function renderNuCandidates(body, pending) {
     <div class="detected-title">${esc(pending.novelTitle)}</div>
     <div class="candidate-label" style="margin-top:14px">Which series is it?</div>
     ${candidates.map((c, i) => `
-      <div class="candidate" id="candidate-${i}">
-        <div class="candidate-title">${esc(c.title)}</div>
-      </div>
+      <button type="button" class="candidate" id="candidate-${i}">
+        <span class="candidate-title">${esc(c.title)}</span>
+      </button>
     `).join("")}
-    <div class="not-in-library" id="btnNoMatch">None of these — ignore</div>
+    <button type="button" class="not-in-library" id="btnNoMatch">None of these — ignore</button>
   `;
 
   candidates.forEach((candidate, i) => {
@@ -761,7 +762,7 @@ function renderAddPrompt(body, cover) {
         onerror="this.style.display='none'"
       />
     </div>` : ""}
-    <div class="candidate-label" style="color:#555">
+    <div class="candidate-label" style="color:#9a9a9a">
       Not in your library.${carried.length ? ` Its ${carried.join(" and ")} come with it.` : ""}
     </div>
     <button class="btn-update" id="btnAdd" style="margin-top:12px">Add to Library</button>
@@ -836,7 +837,7 @@ function renderDuplicatePrompt(body, pending, duplicate) {
     ${hasChapter
       ? `<div class="detected-chapter">${esc(pending.chapter)}</div>`
       : ""}
-    <div class="candidate-label" style="margin-top:12px; color:#555">
+    <div class="candidate-label" style="margin-top:12px; color:#9a9a9a">
       "${esc(pending.title)}" matched this novel, so nothing new was added.
     </div>
     <button class="btn-update" id="btnLink" style="margin-top:12px">

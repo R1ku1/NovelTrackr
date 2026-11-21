@@ -130,7 +130,14 @@ function makeDom() {
     if (!staticIds.has(id) && !reachable(id)) return null;
 
     if (!nodes.has(id)) {
-      const node = { id, className: "", dataset: {}, onclick: null };
+      const node = {
+        id,
+        className: "",
+        dataset: {},
+        onclick: null,
+        attributes: {},
+        setAttribute(name, value) { this.attributes[name] = value; },
+      };
       Object.defineProperty(node, "innerHTML", {
         get: () => node._html || "",
         set: (next) => {

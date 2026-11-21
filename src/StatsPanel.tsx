@@ -82,7 +82,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   headMeta: {
     fontSize: 11,
-    color: "#555",
+    color: "#9a9a9a",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
   },
@@ -121,7 +121,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    color: "#555",
+    color: "#9a9a9a",
     fontSize: 14,
     gap: 4,
   },
@@ -143,7 +143,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 9,
     letterSpacing: "0.16em",
     textTransform: "uppercase",
-    color: "#555",
+    color: "#9a9a9a",
   },
   cardValue: {
     fontSize: 24,
@@ -154,7 +154,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   cardSub: {
     fontSize: 11,
-    color: "#6a6a76",
+    color: "#9a9a9a",
   },
   section: {
     display: "flex",
@@ -174,14 +174,14 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sectionHint: {
     fontSize: 11,
-    color: "#4a4a56",
+    color: "#8a8a96",
     marginTop: -4,
   },
   subTitle: {
     fontSize: 10,
     letterSpacing: "0.14em",
     textTransform: "uppercase",
-    color: "#555",
+    color: "#9a9a9a",
     marginBottom: 8,
   },
   tagRow: {
@@ -195,7 +195,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 9,
     letterSpacing: "0.12em",
     textTransform: "uppercase",
-    color: "#444",
+    color: "#9a9a9a",
     textAlign: "right",
   },
   tagCell: {
@@ -209,7 +209,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     letterSpacing: "0.06em",
     textTransform: "uppercase",
-    color: "#555",
+    color: "#9a9a9a",
     border: "1px solid #22222e",
     padding: "3px 10px",
     borderRadius: 20,
@@ -279,7 +279,7 @@ function WeekBars({ weeks }: { weeks: Week[] }) {
     <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
       {weeks.map((week, i) => (
         <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-          <div style={{ fontSize: 10, color: week.chapters > 0 ? "#8a8a96" : "#3a3a45", fontVariantNumeric: "tabular-nums" }}>{week.chapters}</div>
+          <div style={{ fontSize: 10, color: week.chapters > 0 ? "#8a8a96" : "#8a8a96", fontVariantNumeric: "tabular-nums" }}>{week.chapters}</div>
           <div
             title={`${plural(week.chapters, "chapter")} read`}
             style={{
@@ -289,7 +289,7 @@ function WeekBars({ weeks }: { weeks: Week[] }) {
               borderRadius: 3,
             }}
           />
-          <div style={{ fontSize: 9, color: "#444", whiteSpace: "nowrap" }}>{week.label}</div>
+          <div style={{ fontSize: 9, color: "#9a9a9a", whiteSpace: "nowrap" }}>{week.label}</div>
         </div>
       ))}
     </div>
@@ -303,7 +303,7 @@ function Histogram({ buckets, colour = "#a8555a" }: { buckets: Bucket[]; colour?
     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
       {buckets.map((bucket) => (
         <div key={bucket.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ width: 66, fontSize: 11, color: "#666", fontFamily: FONT }}>{bucket.label}</span>
+          <span style={{ width: 66, fontSize: 11, color: "#9a9a9a", fontFamily: FONT }}>{bucket.label}</span>
           <div style={{ flex: 1, height: 10, background: "#16161e", borderRadius: 3, overflow: "hidden" }}>
             <div
               style={{
@@ -314,7 +314,7 @@ function Histogram({ buckets, colour = "#a8555a" }: { buckets: Bucket[]; colour?
               }}
             />
           </div>
-          <span style={{ width: 24, fontSize: 11, color: bucket.count > 0 ? "#999" : "#3a3a45", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+          <span style={{ width: 24, fontSize: 11, color: bucket.count > 0 ? "#999" : "#8a8a96", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
             {bucket.count}
           </span>
         </div>
@@ -339,14 +339,14 @@ function TagTable({ rows }: { rows: TagStat[] }) {
           <div key={row.tag} style={styles.tagRow}>
             <span style={{ flex: 1, fontSize: 12, color: "#d5d2cc" }}>{row.tag}</span>
             <span style={styles.tagCell}>{row.novels}</span>
-            <span style={{ ...styles.tagCell, color: decided === 0 ? "#3a3a45" : "#9ec1e4" }}>
+            <span style={{ ...styles.tagCell, color: decided === 0 ? "#8a8a96" : "#9ec1e4" }}>
               {decided === 0 ? "—" : `${percent(row.completed, decided)}%`}
             </span>
             <span style={styles.tagCell}>{row.chapters}</span>
             {/* An average without its count says very little, so the count is the
                 tooltip and a tag with nothing rated shows a dash */}
             <span
-              style={{ ...styles.tagCell, color: row.rated === 0 ? "#3a3a45" : "#e0b64a" }}
+              style={{ ...styles.tagCell, color: row.rated === 0 ? "#8a8a96" : "#e0b64a" }}
               title={row.rated === 0 ? "Nothing rated yet" : `${row.rated} of ${row.novels} novels rated`}
             >
               {row.rated === 0 || row.avg_rating === null ? "—" : row.avg_rating.toFixed(1)}
@@ -451,7 +451,7 @@ export default function StatsPanel({
     return (
       <div style={styles.state}>
         Couldn't load stats.
-        <div style={{ fontSize: 12, color: "#8a5a5a", marginTop: 8, letterSpacing: 0 }}>{error}</div>
+        <div style={{ fontSize: 12, color: "#f87171", marginTop: 8, letterSpacing: 0 }}>{error}</div>
       </div>
     );
   }
@@ -592,7 +592,7 @@ export default function StatsPanel({
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {stats.status_counts.map((row) => {
             const meta = STATUS_OPTIONS.find((o) => o.value === row.status);
-            const colour = meta?.color ?? "#666";
+            const colour = meta?.color ?? "#9a9a9a";
             return (
               <span
                 key={row.status}
@@ -631,7 +631,7 @@ export default function StatsPanel({
               <div style={styles.subTitle}>Taste over time · chapters read</div>
               {stats.tag_years.map((year) => (
                 <div key={year.year} style={styles.yearRow}>
-                  <span style={{ width: 44, color: "#666", fontSize: 12 }}>{year.year}</span>
+                  <span style={{ width: 44, color: "#9a9a9a", fontSize: 12 }}>{year.year}</span>
                   <span style={{ fontSize: 12, color: "#9a9a9a" }}>
                     {year.tags.map((t) => `${t.label} (${t.count})`).join(" · ")}
                   </span>

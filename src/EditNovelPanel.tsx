@@ -98,7 +98,7 @@ function DeleteConfirm({
         </div>
         <div style={{
           fontSize: 13,
-          color: "#555",
+          color: "#9a9a9a",
           lineHeight: 1.5,
           maxWidth: 280,
         }}>
@@ -112,7 +112,7 @@ function DeleteConfirm({
           style={{
             background: "transparent",
             border: "1px solid #2a2a35",
-            color: "#666",
+            color: "#9a9a9a",
             padding: "9px 20px",
             fontSize: 12,
             fontFamily: FONT,
@@ -291,7 +291,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
           padding: "10px 24px",
           borderBottom: "1px solid #1a1a22",
           fontSize: 11,
-          color: "#3a3a45",
+          color: "#8a8a96",
           letterSpacing: "0.05em",
           flexShrink: 0,
         }}>
@@ -336,7 +336,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               onChange={(v) => set("author", v)}
               placeholder="e.g. Guiltythree"
             />
-            <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+            <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
               Filled in automatically when you visit the novel's page. Editing it here wins.
             </div>
           </div>
@@ -359,7 +359,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
             <div>
               <FieldLabel text="Reason for dropping" />
               <ReasonPicker value={form.drop_reason} onChange={(v) => set("drop_reason", v)} />
-              <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+              <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
                 Optional. Groups the stats page by why, not just where you stopped.
               </div>
             </div>
@@ -381,7 +381,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
                   fontSize: 10,
                   marginTop: 5,
                   paddingLeft: 1,
-                  color: isStale(form.latest_chapter_seen_at) ? "#3a3a45" : "#6a6a76",
+                  color: isStale(form.latest_chapter_seen_at) ? "#8a8a96" : "#9a9a9a",
                 }}
               >
                 {latestSummary(form.latest_chapter, form.latest_chapter_confidence, form.latest_chapter_seen_at)}
@@ -462,7 +462,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               onChange={(v) => set("cover_url", v)}
               placeholder="https://…"
             />
-            <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+            <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
               Paste any image URL. Right-click a cover → Copy image address.
             </div>
           </div>
@@ -475,7 +475,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               onChange={(v) => set("last_seen_url", v)}
               placeholder="https://…"
             />
-            <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+            <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
               The website where you read this novel. Updated automatically by the extension.
             </div>
           </div>
@@ -496,7 +496,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
           {history && history.entries.length > 0 && (
             <div>
               <FieldLabel text="History" />
-              <div style={{ fontSize: 10, color: "#3a3a45", marginBottom: 8, paddingLeft: 1 }}>
+              <div style={{ fontSize: 10, color: "#8a8a96", marginBottom: 8, paddingLeft: 1 }}>
                 {history.entries.length} {history.entries.length === 1 ? "entry" : "entries"} in the log
                 {history.chapters_30d > 0 && ` · ${history.chapters_30d} chapters in the last 30 days`}
               </div>
@@ -516,7 +516,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               >
                 {history.entries.map((entry, i) => (
                   <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12 }}>
-                    <span style={{ width: 74, color: "#555", fontVariantNumeric: "tabular-nums" }}>
+                    <span style={{ width: 74, color: "#9a9a9a", fontVariantNumeric: "tabular-nums" }}>
                       {entry.at}
                     </span>
                     <span style={{ flex: 1, color: "#9a9a9a" }}>{historyLine(entry)}</span>

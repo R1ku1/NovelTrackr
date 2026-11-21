@@ -85,7 +85,7 @@ function getNavBtnStyle(active: boolean, hovered: boolean): React.CSSProperties 
   return {
     background: "transparent",
     border: "none",
-    color: active ? "#e8e6e1" : hovered ? "#9a9aa4" : "#555",
+    color: active ? "#e8e6e1" : hovered ? "#9a9aa4" : "#9a9a9a",
     padding: "6px 10px",
     fontSize: 13,
     fontFamily: "'Georgia', 'Times New Roman', serif",
@@ -100,7 +100,7 @@ function getViewBtnStyle(active: boolean): React.CSSProperties {
   return {
     background: active ? "#2a2a35" : "transparent",
     border: "1px solid #2a2a35",
-    color: active ? "#e8e6e1" : "#666",
+    color: active ? "#e8e6e1" : "#9a9a9a",
     width: 32,
     height: 32,
     cursor: "pointer",
@@ -117,7 +117,7 @@ function getTagFilterStyle(active: boolean): React.CSSProperties {
   return {
     background: active ? "#60a5fa15" : "transparent",
     border: `1px solid ${active ? "#60a5fa55" : "#22222e"}`,
-    color: active ? "#60a5fa" : "#666",
+    color: active ? "#60a5fa" : "#9a9a9a",
     borderRadius: 20,
     padding: "3px 10px",
     fontSize: 11,
@@ -175,7 +175,7 @@ function getCoverFrameStyle(base: React.CSSProperties, favourite: boolean): Reac
 // The DB row is untyped at the boundary — an unrecognised status must not crash the view
 function statusMeta(status: string): { label: string; color: string } {
   return (STATUS_META as Record<string, { label: string; color: string }>)[status]
-    ?? { label: status || "Unknown", color: "#666" };
+    ?? { label: status || "Unknown", color: "#9a9a9a" };
 }
 
 function getStatusBadgeStyle(status: Status): React.CSSProperties {
@@ -286,7 +286,7 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 9,
     background: "none",
     border: "none",
-    color: "#555",
+    color: "#9a9a9a",
     cursor: "pointer",
     fontSize: 14,
     padding: 0,
@@ -339,7 +339,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 9,
     letterSpacing: "0.14em",
     textTransform: "uppercase",
-    color: "#444",
+    color: "#9a9a9a",
     paddingLeft: 2,
   },
   select: {
@@ -361,7 +361,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "10px 28px",
     fontSize: 12,
     letterSpacing: "0.1em",
-    color: "#555",
+    color: "#9a9a9a",
     textTransform: "uppercase",
     fontVariantNumeric: "tabular-nums",
     borderBottom: "1px solid #1a1a22",
@@ -380,7 +380,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 9,
     letterSpacing: "0.14em",
     textTransform: "uppercase" as const,
-    color: "#444",
+    color: "#9a9a9a",
     marginRight: 2,
   },
   main: {
@@ -416,7 +416,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     letterSpacing: "0.12em",
     textTransform: "uppercase",
-    color: "#444",
+    color: "#9a9a9a",
     padding: "0 12px 14px 0",
     fontWeight: 400,
     borderBottom: "1px solid #1e1e28",
@@ -435,7 +435,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "inline-block",
     fontSize: 10,
     letterSpacing: "0.08em",
-    color: "#555",
+    color: "#9a9a9a",
     background: "#1a1a22",
     border: "1px solid #252530",
     padding: "1px 6px",
@@ -445,7 +445,7 @@ const styles: Record<string, React.CSSProperties> = {
   authorLine: {
     fontSize: 12,
     fontStyle: "italic",
-    color: "#6a6a76",
+    color: "#9a9a9a",
     marginTop: 3,
   },
   tagChip: {
@@ -508,7 +508,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     marginBottom: 4,
     fontSize: 11,
-    color: "#333",
+    color: "#8a8a96",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     border: "1px solid #1e1e28",
@@ -532,7 +532,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   gridMeta: {
     fontSize: 12,
-    color: "#555",
+    color: "#9a9a9a",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
@@ -587,7 +587,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     letterSpacing: "0.15em",
     textTransform: "uppercase",
-    color: "#555",
+    color: "#9a9a9a",
   },
   modalNovel: {
     fontSize: 17,
@@ -598,7 +598,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modalCurrent: {
     fontSize: 12,
-    color: "#555",
+    color: "#9a9a9a",
     letterSpacing: "0.04em",
     marginTop: 4,
   },
@@ -632,7 +632,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modalCancel: {
     background: "transparent",
-    color: "#555",
+    color: "#9a9a9a",
     border: "1px solid #2a2a35",
     padding: "8px 20px",
     fontSize: 12,
@@ -644,7 +644,7 @@ const styles: Record<string, React.CSSProperties> = {
   emptyState: {
     textAlign: "center",
     padding: "60px 0",
-    color: "#444",
+    color: "#9a9a9a",
     fontSize: 14,
     letterSpacing: "0.06em",
   },
@@ -654,7 +654,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     lineHeight: 1.6,
     letterSpacing: "0.02em",
-    color: "#3a3a45",
+    color: "#8a8a96",
   },
 };
 
@@ -684,7 +684,7 @@ function UpdateButton({ onClick }: { onClick: () => void }) {
       style={{
         background: hovered ? "#60a5fa18" : "#1a1a22",
         border: `1px solid ${hovered ? "#60a5fa55" : "#2a2a35"}`,
-        color: hovered ? "#60a5fa" : "#666",
+        color: hovered ? "#60a5fa" : "#9a9a9a",
         fontSize: 11,
         padding: "4px 10px",
         cursor: "pointer",
@@ -934,14 +934,14 @@ const ListRow = memo(function ListRow({
         </span>
       </td>
       <td style={{ ...styles.td, ...styles.chapterCell }}>
-        {novel.current_chapter_raw ?? <span style={{ color: "#333" }}>—</span>}
+        {novel.current_chapter_raw ?? <span style={{ color: "#8a8a96" }}>—</span>}
         <NewChaptersBadge novel={novel} />
         <ChapterProgress novel={novel} />
       </td>
       <td style={{ ...styles.td, ...styles.sourceCell }}>
         {novel.last_seen_url
           ? <SourceLink url={novel.last_seen_url} />
-          : <span style={{ color: "#333" }}>—</span>
+          : <span style={{ color: "#8a8a96" }}>—</span>
         }
       </td>
       <td style={styles.td}>
@@ -998,7 +998,7 @@ const GridCard = memo(function GridCard({
         {statusMeta(novel.status).label}
       </span>
       <div style={styles.gridMeta}>
-        <span style={{ color: "#666", fontSize: 12 }}>
+        <span style={{ color: "#9a9a9a", fontSize: 12 }}>
           {novel.current_chapter_raw ?? "Not started"}
           <NewChaptersBadge novel={novel} />
           <ChapterProgress novel={novel} />
@@ -1422,7 +1422,7 @@ export default function App() {
         {loadError ? (
           <div style={{ ...styles.emptyState, color: "#f87171" }}>
             Couldn't load your library.
-            <div style={{ fontSize: 12, color: "#8a5a5a", marginTop: 8, letterSpacing: 0 }}>
+            <div style={{ fontSize: 12, color: "#f87171", marginTop: 8, letterSpacing: 0 }}>
               {loadError}
             </div>
           </div>

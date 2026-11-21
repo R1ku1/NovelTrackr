@@ -27,7 +27,7 @@ export function FieldLabel({ text, required }: { text: string; required?: boolea
       fontSize: 9,
       letterSpacing: "0.16em",
       textTransform: "uppercase",
-      color: "#555",
+      color: "#9a9a9a",
       marginBottom: 6,
       paddingLeft: 1,
     }}>
@@ -50,7 +50,7 @@ const coverImg: React.CSSProperties = {
 
 const coverPlaceholder: React.CSSProperties = {
   fontSize: 11,
-  color: "#333",
+  color: "#8a8a96",
   letterSpacing: "0.08em",
   textTransform: "uppercase",
 };
@@ -187,7 +187,7 @@ export function StatusPicker({
             style={{
               background: active ? `${opt.color}15` : "transparent",
               border: `1px solid ${active ? opt.color + "60" : "#22222e"}`,
-              color: active ? opt.color : "#555",
+              color: active ? opt.color : "#9a9a9a",
               borderRadius: 20,
               padding: "5px 14px",
               fontSize: 11,
@@ -243,7 +243,7 @@ export function RatingPicker({
           </button>
         );
       })}
-      <span style={{ fontSize: 11, color: "#555", marginLeft: 6 }}>
+      <span style={{ fontSize: 11, color: "#9a9a9a", marginLeft: 6 }}>
         {value === null ? "Not rated" : `${value} / ${RATING_MAX}`}
       </span>
     </div>
@@ -287,7 +287,7 @@ export function ReasonPicker({
             style={{
               background: active ? "#f8717115" : "transparent",
               border: `1px solid ${active ? "#f8717160" : "#22222e"}`,
-              color: active ? "#f87171" : "#555",
+              color: active ? "#f87171" : "#9a9a9a",
               borderRadius: 20,
               padding: "5px 12px",
               fontSize: 11,
@@ -367,7 +367,7 @@ export function ChipInput({
                 style={{
                   background: "none",
                   border: "none",
-                  color: "#555",
+                  color: "#9a9a9a",
                   cursor: "pointer",
                   padding: 0,
                   fontSize: 13,
@@ -444,7 +444,7 @@ export function ChipInput({
           ))}
         </div>
       )}
-      <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+      <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
         {hint}
       </div>
     </div>
@@ -544,7 +544,7 @@ export function PanelHeader({
           fontSize: 9,
           letterSpacing: "0.18em",
           textTransform: "uppercase",
-          color: "#444",
+          color: "#9a9a9a",
           marginBottom: 4,
         }}>
           {eyebrow}
@@ -570,7 +570,7 @@ export function PanelHeader({
           style={{
             background: "none",
             border: "1px solid #2a2a35",
-            color: "#555",
+            color: "#9a9a9a",
             width: 32,
             height: 32,
             borderRadius: 8,
@@ -643,7 +643,7 @@ export function BtnSecondary({ label, onClick }: { label: string; onClick: () =>
       style={{
         background: "transparent",
         border: `1px solid ${hovered ? "#3a3a50" : "#2a2a35"}`,
-        color: hovered ? "#b0b0b8" : "#666",
+        color: hovered ? "#b0b0b8" : "#9a9a9a",
         padding: "9px 20px",
         fontSize: 12,
         fontFamily: FONT,
@@ -668,7 +668,7 @@ export function BtnDanger({ label, onClick }: { label: string; onClick: () => vo
       style={{
         background: hovered ? "#f8717115" : "transparent",
         border: `1px solid ${hovered ? "#f8717155" : "#2a2a35"}`,
-        color: hovered ? "#f87171" : "#555",
+        color: hovered ? "#f87171" : "#9a9a9a",
         padding: "9px 20px",
         fontSize: 12,
         fontFamily: FONT,

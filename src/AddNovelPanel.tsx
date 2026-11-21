@@ -137,7 +137,7 @@ function DuplicateWarning({
             alignItems: "center",
             gap: 6,
           }}>
-            <span style={{ color: "#3a3a45", fontSize: 10 }}>—</span>
+            <span style={{ color: "#8a8a96", fontSize: 10 }}>—</span>
             {m.title}
           </div>
         ))}
@@ -154,7 +154,7 @@ function DuplicateWarning({
           style={{
             background: "transparent",
             border: "1px solid #2a2a35",
-            color: "#666",
+            color: "#9a9a9a",
             padding: "5px 12px",
             fontSize: 11,
             fontFamily: "'Georgia', 'Times New Roman', serif",
@@ -311,7 +311,7 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
             onChange={(v) => set("current_chapter_raw", v)}
             placeholder="e.g. Chapter 221, Vol 2 Ch 4"
           />
-          <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+          <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
             Leave blank if not started yet.
           </div>
         </div>
@@ -353,7 +353,7 @@ export default function AddNovelPanel({ open, onClose, onSubmit, existingNovels 
             onChange={(v) => set("cover_url", v)}
             placeholder="https://…"
           />
-          <div style={{ fontSize: 10, color: "#3a3a45", marginTop: 5, paddingLeft: 1 }}>
+          <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
             Paste any image URL. Right-click a cover → Copy image address.
           </div>
         </div>
