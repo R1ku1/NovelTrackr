@@ -7,6 +7,7 @@
 [![Latest release](https://img.shields.io/github/v/release/R1ku1/NovelTrackr?style=flat-square)](https://github.com/R1ku1/NovelTrackr/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-Install-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/fpopdhhcjefmejigbgnjeknkbloolcfb)
 
 A local-first desktop library for web novels, light novels and manhwa — paired with a Chrome extension that notices the chapter you are on and files it for you.
 
@@ -17,7 +18,7 @@ A local-first desktop library for web novels, light novels and manhwa — paired
 ## Install
 
 1. **Install the desktop app.** Download the Windows installer from [the latest release](https://github.com/R1ku1/NovelTrackr/releases/latest) and run it.
-2. **Add the Chrome extension.** The Chrome Web Store listing is currently in review. Until it is approved, download `extension.zip` from the same release, extract it, open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the extracted folder.
+2. **Add the Chrome extension.** Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/fpopdhhcjefmejigbgnjeknkbloolcfb). If you prefer not to use the store, download `extension.zip` from the same release, extract it, open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the extracted folder.
 3. **Leave the app running.** Closing the window keeps Noveltrackr in the system tray.
 
 **The desktop app must be running for the extension to save progress.**
@@ -84,7 +85,7 @@ The long version — progress lower bounds, address matching, popup offers, Nove
 
 - **Windows only** for now.
 - **Unsigned installer.** SmartScreen may warn on first run: click **More info → Run anyway**.
-- **Chrome/Chromium only** for the extension. The Chrome Web Store listing is in review; until it is approved, install it locally with Developer mode (step 2 above).
+- **Chrome/Chromium only** for the extension. Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/fpopddhhcjefmejigbgnjeknkbloolcfb).
 - **Visited pages only.** Progress updates when you visit a chapter page; a novel you have never browsed shows no "new" badge rather than "0 new".
 - **Site changes.** A change to a site's markup can pause detection until the selectors are updated.
 
