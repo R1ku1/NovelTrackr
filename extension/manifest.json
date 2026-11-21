@@ -1,12 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Noveltrackr",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Track your novel reading progress",
   "permissions": [
-    "storage",
-    "activeTab",
-    "scripting"
+    "storage"
   ],
   "host_permissions": [
     "http://127.0.0.1:39172/*",
