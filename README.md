@@ -32,6 +32,8 @@ A local-first desktop library for web novels, light novels and manhwa — paired
 | [NovelUpdates](https://www.novelupdates.com) | Series search and pick-list, tag names, newest-release offer (not a reading site) |
 | Other reading sites | Title and chapter from the page; author when the page exposes one |
 
+Noveltrackr is not affiliated with these sites. It only reads pages you have already opened and does not bypass logins, paywalls or access controls.
+
 ## Features
 
 - **Automatic chapter tracking** — one click in the popup; a confirmed title-to-novel mapping makes later chapters on that page report themselves. Unrecognised novels can be added from the same popup, or matched with a library search when the page title is ambiguous.
@@ -76,6 +78,7 @@ The long version — progress lower bounds, address matching, popup offers, Nove
 - **Export:** the full library exports to JSON and restores in one transaction, so a bad file changes nothing.
 - **No telemetry, no account, no cloud.** The extension only talks to the app at `127.0.0.1:39172`, and chapter data is saved only from pages you visit — nothing is fetched in the background. NovelUpdates searches are run by you, in your browser.
 - **Full policy:** [privacy.md](privacy.md) — what the extension reads, where it is stored, and how to delete it.
+- **Terms of use:** [terms.md](terms.md) — no affiliation, acceptable use, and the MIT warranty disclaimer.
 
 ## Known limitations
 
@@ -91,3 +94,4 @@ The long version — progress lower bounds, address matching, popup offers, Nove
 - PRs are welcome — keep them focused and matching the existing style. Before opening one, run `npm install && npm run build`, `node extension/selfcheck.mjs`, and for desktop changes `npm run tauri dev`.
 - Built with Tauri 2, React, TypeScript and SQLite.
 - Licensed under the [MIT License](LICENSE). Use it, fork it, ship it.
+- Use is also covered by the [Terms of Use](terms.md) and [Privacy Policy](privacy.md).
