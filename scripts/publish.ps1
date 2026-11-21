@@ -22,6 +22,9 @@ Build and upload, then stop before publication. This is a write operation.
 .PARAMETER KeepZip
 Keep the temporary upload zip. -PackageOnly always keeps extension.zip.
 
+.PARAMETER Yes
+Skip the interactive "publish" prompt. Use only after explicitly deciding to publish.
+
 .PARAMETER MaxWaitSeconds
 How long to wait for Google to finish processing an upload. Default: 180.
 
@@ -46,6 +49,7 @@ param(
   [switch]$StatusOnly,
   [switch]$UploadOnly,
   [switch]$KeepZip,
+  [switch]$Yes,
   [ValidateRange(1, 3600)][int]$MaxWaitSeconds = 180,
   [ValidateRange(1, 60)][int]$PollSeconds = 3
 )
@@ -589,10 +593,15 @@ function Invoke-Main {
   Write-Step "Confirm publication"
   Write-Host "Version $version is uploaded and processed."
   Write-Host "Publishing submits it to Google for review. Approval is not guaranteed."
-  $answer = Read-Host "Type 'publish' to submit version $version (anything else cancels)"
-  if (-not $answer -or $answer.Trim() -ne "publish") {
-    Write-Host "Cancelled. The upload remains, but nothing was published." -ForegroundColor Yellow
-    return
+  if (-not $Yes) {
+    $answer = Read-Host "Type 'publish' to submit version $version (anything else cancels)"
+    if (-not $answer -or $answer.Trim() -ne "publish") {
+      Write-Host "Cancelled. The upload remains, but nothing was published." -ForegroundColor Yellow
+      return
+    }
+  }
+  else {
+    Write-Host "Publishing confirmed by -Yes." -ForegroundColor Yellow
   }
 
   Write-Step "Submitting for publication"
