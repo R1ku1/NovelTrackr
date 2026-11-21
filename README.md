@@ -46,9 +46,10 @@ Noveltrackr is not affiliated with these sites. It only reads pages you have alr
 - **Tags and metadata** — author and tags captured from the page, aliases, NovelUpdates tag suggestions, and a "Find on NU" series picker.
 - **Covers** — load a cover from a URL or capture one from the site; five-star novels get a foil-stamped cover.
 - **Backups and export** — JSON export and restore in one transaction, plus daily and pre-restore snapshots.
+- **In-app updates** — checks GitHub on launch and from the header, verifies the installer's SHA-256, then opens it.
 - **Tray-first** — close the window and keep the app running; no account, no cloud, no telemetry.
 
-The long version — progress lower bounds, address matching, popup offers, NovelUpdates handling and the foil stamp — is in [docs/technical-notes.md](docs/technical-notes.md).
+The long version — progress lower bounds, address matching, popup offers, NovelUpdates handling and the foil stamp — is in [docs/technical-notes.md](docs/technical-notes.md). The update pipeline is in [docs/updates.md](docs/updates.md).
 
 ## Screenshots
 

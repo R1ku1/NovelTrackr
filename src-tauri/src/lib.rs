@@ -8,6 +8,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 mod backup;
 mod server;
 mod stats;
+mod updates;
 
 /// The database the app and its local API share, handed to commands that read it
 pub struct DbPath(pub String);
@@ -40,6 +41,19 @@ fn get_novel_history(
     path: tauri::State<'_, DbPath>,
 ) -> Result<stats::NovelHistory, String> {
     stats::novel_history(&path.0, id)
+}
+
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> Result<Option<updates::UpdateInfo>, String> {
+    updates::check_for_update(&app).await
+}
+
+#[tauri::command]
+async fn download_update(
+    app: tauri::AppHandle,
+    update: updates::UpdateInfo,
+) -> Result<String, String> {
+    updates::download_update(&app, update).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -123,7 +137,9 @@ pub fn run() {
             save_export,
             get_stats,
             get_novel_history,
-            import_library
+            import_library,
+            check_for_update,
+            download_update
         ])
         .setup(|app| {
             let quit = MenuItemBuilder::new("Quit Noveltrackr")
