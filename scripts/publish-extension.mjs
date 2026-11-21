@@ -196,8 +196,9 @@ async function upload(token, publisher) {
 async function publish(token, publisher, version) {
   const status = await fetchStatus(token, publisher);
   const published = status.publishedItemRevisionStatus?.distributionChannels?.[0]?.crxVersion;
-  if (published === version) {
-    fail(`extension/manifest.json is already at ${version}. Bump the version before publishing.`);
+  const submitted = status.submittedItemRevisionStatus?.distributionChannels?.[0]?.crxVersion;
+  if (published === version || submitted === version) {
+    fail(`extension/manifest.json is already at ${version} (published or submitted). Bump the version before publishing.`);
   }
 
   const data = await call(`https://chromewebstore.googleapis.com/v2/${itemPath(publisher)}:publish`, token, {
