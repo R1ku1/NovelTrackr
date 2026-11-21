@@ -25,5 +25,5 @@ tauri-plugin-sql = { version = "2.6.0", features = ["sqlite"] }
 tauri-plugin-dialog = "2.7.0"
 tiny_http = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
-dirs = "5"
+dirs = "7"
 tauri-plugin-single-instance = "2.4.2"
