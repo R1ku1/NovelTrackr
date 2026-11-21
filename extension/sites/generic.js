@@ -1,8 +1,8 @@
 function extract() {
   const docTitle = document.title;
-  
+
   // Pattern 1: "Novel Title - Chapter N"
-  // Pattern 2: "Chapter N - Novel Title"  
+  // Pattern 2: "Chapter N - Novel Title"
   // Pattern 3: "Novel Title | Chapter N"
   // Pattern 4: "Novel Title – Chapter N – Site Name"
 
@@ -16,10 +16,10 @@ function extract() {
     if (match) {
       const a = match[1].trim();
       const b = match[2].trim();
-      
+
       // Figure out which part is the chapter
       const aIsChapter = /^chapter/i.test(a) || /^episode/i.test(a);
-      
+
       return {
         title: aIsChapter ? b : a,
         chapter: aIsChapter ? a : b,

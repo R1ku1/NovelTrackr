@@ -94,6 +94,5 @@ The long version — progress lower bounds, address matching, popup offers, Nove
 - Found a bug or want a feature? [Open an issue](https://github.com/R1ku1/NovelTrackr/issues).
 - PRs are welcome — keep them focused and matching the existing style. Before opening one, run `npm install && npm run build`, `node extension/selfcheck.mjs`, and for desktop changes `npm run tauri dev`.
 - Built with Tauri 2, React, TypeScript and SQLite.
-- Publishing an extension update? Run `.\scripts\publish.ps1`; setup and safe-test steps are in [docs/publishing.md](docs/publishing.md).
 - Licensed under the [MIT License](LICENSE). Use it, fork it, ship it.
 - Use is also covered by the [Terms of Use](terms.md) and [Privacy Policy](privacy.md).

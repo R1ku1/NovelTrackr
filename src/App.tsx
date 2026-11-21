@@ -56,7 +56,11 @@ function TagChips({ tags, max = 3 }: { tags: string[]; max?: number }) {
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
-      {shown.map((t) => <span key={t} style={styles.tagChip}>{t}</span>)}
+      {shown.map((t) => (
+        <span key={t} style={styles.tagChip}>
+          {t}
+        </span>
+      ))}
       {extra > 0 && <span style={styles.tagChip}>+{extra}</span>}
     </div>
   );
@@ -64,15 +68,14 @@ function TagChips({ tags, max = 3 }: { tags: string[]; max?: number }) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const STATUS_META: Record<Status, { label: string; color: string }> = {
-  reading:   { label: "Reading",   color: "#60a5fa" },
+  reading: { label: "Reading", color: "#60a5fa" },
   // Amber, not yellow: gold is what a five-star cover is foil-stamped in, and a paused
   // badge in the same colour would say the wrong thing
-  paused:    { label: "Paused",    color: "#fb923c" },
+  paused: { label: "Paused", color: "#fb923c" },
   completed: { label: "Completed", color: "#4ade80" },
-  dropped:   { label: "Dropped",   color: "#f87171" },
-  planned:   { label: "Planned",   color: "#a78bfa" },
+  dropped: { label: "Dropped", color: "#f87171" },
+  planned: { label: "Planned", color: "#a78bfa" },
 };
-
 
 type SortKey = "updated" | "title" | "chapter";
 type ViewMode = "list" | "grid" | "compact";
@@ -150,8 +153,7 @@ function getTrStyle(hovered: boolean): React.CSSProperties {
 // it is in App.css (.foil / .foil-host) — the frame alone carries the meaning, so nothing
 // here depends on movement, and the label says it in words for a screen reader and for
 // anyone who cannot tell gold from grey.
-const FOIL_GRADIENT =
-  "linear-gradient(135deg, #8a6d1f 0%, #ffd700 28%, #fff3b0 50%, #d4af37 72%, #8a6d1f 100%)";
+const FOIL_GRADIENT = "linear-gradient(135deg, #8a6d1f 0%, #ffd700 28%, #fff3b0 50%, #d4af37 72%, #8a6d1f 100%)";
 
 const COVER_BACKING = "#1a1a22";
 
@@ -174,8 +176,12 @@ function getCoverFrameStyle(base: React.CSSProperties, favourite: boolean): Reac
 
 // The DB row is untyped at the boundary — an unrecognised status must not crash the view
 function statusMeta(status: string): { label: string; color: string } {
-  return (STATUS_META as Record<string, { label: string; color: string }>)[status]
-    ?? { label: status || "Unknown", color: "#9a9a9a" };
+  return (
+    (STATUS_META as Record<string, { label: string; color: string }>)[status] ?? {
+      label: status || "Unknown",
+      color: "#9a9a9a",
+    }
+  );
 }
 
 function getStatusBadgeStyle(status: Status): React.CSSProperties {
@@ -387,7 +393,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "20px 28px 96px",
     flex: 1,
     overflowY: "auto",
-    overflowX: "hidden"
+    overflowX: "hidden",
   },
 
   sourceCell: {
@@ -680,7 +686,10 @@ function UpdateButton({ onClick }: { onClick: () => void }) {
     <button
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       style={{
         background: hovered ? "#60a5fa18" : "#1a1a22",
         border: `1px solid ${hovered ? "#60a5fa55" : "#2a2a35"}`,
@@ -733,11 +742,7 @@ function QuickUpdateModal({
         <div>
           <div style={styles.modalTitle}>Update Progress</div>
           <div style={styles.modalNovel}>{novel.canonical_title}</div>
-          {novel.current_chapter_raw && (
-            <div style={styles.modalCurrent}>
-              Currently at {novel.current_chapter_raw}
-            </div>
-          )}
+          {novel.current_chapter_raw && <div style={styles.modalCurrent}>Currently at {novel.current_chapter_raw}</div>}
         </div>
         <input
           style={styles.modalInput}
@@ -751,7 +756,9 @@ function QuickUpdateModal({
           }}
         />
         <div style={styles.modalActions}>
-          <button style={styles.modalCancel} onClick={onClose}>Cancel</button>
+          <button style={styles.modalCancel} onClick={onClose}>
+            Cancel
+          </button>
           <button style={styles.modalConfirm} onClick={() => onConfirm(novel.id, value)}>
             Save
           </button>
@@ -785,9 +792,11 @@ function NewChaptersBadge({ novel }: { novel: Novel }) {
   return (
     <span
       style={getNewBadgeStyle(stale)}
-      title={stale
-        ? `${unread} unread — last confirmed ${seen ?? "never"}`
-        : `${unread} unread (the site is at chapter ${novel.latest_chapter})`}
+      title={
+        stale
+          ? `${unread} unread — last confirmed ${seen ?? "never"}`
+          : `${unread} unread (the site is at chapter ${novel.latest_chapter})`
+      }
     >
       {unread} new
     </span>
@@ -822,11 +831,7 @@ function ChapterProgress({ novel }: { novel: Novel }) {
   const suffix = latestSuffix(novel.latest_chapter, novel.latest_chapter_confidence);
   if (suffix === null) return null;
 
-  const title = latestSummary(
-    novel.latest_chapter,
-    novel.latest_chapter_confidence,
-    novel.latest_chapter_seen_at
-  );
+  const title = latestSummary(novel.latest_chapter, novel.latest_chapter_confidence, novel.latest_chapter_seen_at);
 
   return (
     <span style={styles.chapterOf} title={title ?? undefined}>
@@ -911,17 +916,12 @@ const ListRow = memo(function ListRow({
     >
       <td style={{ ...styles.td, ...styles.titleCell }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            className={favourite ? "foil" : undefined}
-            style={getCoverFrameStyle(styles.listCover, favourite)}
-          >
+          <div className={favourite ? "foil" : undefined} style={getCoverFrameStyle(styles.listCover, favourite)}>
             <CoverImage url={novel.cover_url} alt="" placeholder={false} />
           </div>
           <div>
             {novel.canonical_title}
-            {novel.aliases.length > 0 && (
-              <span style={styles.aliasTag}>{novel.aliases[0]}</span>
-            )}
+            {novel.aliases.length > 0 && <span style={styles.aliasTag}>{novel.aliases[0]}</span>}
             {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
             <TagChips tags={novel.tags} />
             {favourite && <span className="sr-only">{FAVOURITE_LABEL}</span>}
@@ -929,9 +929,7 @@ const ListRow = memo(function ListRow({
         </div>
       </td>
       <td style={styles.td}>
-        <span style={getStatusBadgeStyle(novel.status)}>
-          {statusMeta(novel.status).label}
-        </span>
+        <span style={getStatusBadgeStyle(novel.status)}>{statusMeta(novel.status).label}</span>
       </td>
       <td style={{ ...styles.td, ...styles.chapterCell }}>
         {novel.current_chapter_raw ?? <span style={{ color: "#8a8a96" }}>—</span>}
@@ -939,10 +937,7 @@ const ListRow = memo(function ListRow({
         <ChapterProgress novel={novel} />
       </td>
       <td style={{ ...styles.td, ...styles.sourceCell }}>
-        {novel.last_seen_url
-          ? <SourceLink url={novel.last_seen_url} />
-          : <span style={{ color: "#8a8a96" }}>—</span>
-        }
+        {novel.last_seen_url ? <SourceLink url={novel.last_seen_url} /> : <span style={{ color: "#8a8a96" }}>—</span>}
       </td>
       <td style={styles.td}>
         <UpdateButton onClick={() => onQuickUpdate(novel)} />
@@ -974,10 +969,7 @@ const GridCard = memo(function GridCard({
       onMouseLeave={() => setHovered(false)}
       onClick={() => onOpen(novel)}
     >
-      <div
-        className={favourite ? "foil" : undefined}
-        style={getCoverFrameStyle(styles.gridCover, favourite)}
-      >
+      <div className={favourite ? "foil" : undefined} style={getCoverFrameStyle(styles.gridCover, favourite)}>
         <CoverImage url={novel.cover_url} alt="" />
       </div>
       {/* The title is the card's keyboard path — clicking the card is a mouse shortcut */}
@@ -994,9 +986,7 @@ const GridCard = memo(function GridCard({
       {favourite && <span className="sr-only">{FAVOURITE_LABEL}</span>}
       {novel.author && <div style={styles.authorLine}>{novel.author}</div>}
       <TagChips tags={novel.tags} />
-      <span style={getStatusBadgeStyle(novel.status)}>
-        {statusMeta(novel.status).label}
-      </span>
+      <span style={getStatusBadgeStyle(novel.status)}>{statusMeta(novel.status).label}</span>
       <div style={styles.gridMeta}>
         <span style={{ color: "#9a9a9a", fontSize: 12 }}>
           {novel.current_chapter_raw ?? "Not started"}
@@ -1027,12 +1017,7 @@ function AddButton({ onClick }: { onClick: () => void }) {
       {/* Drawn, not typed: a "+" glyph sits on its font's math axis, so it never
           lands on the line box's centre, and no padding guess survives a font change */}
       <svg width={20} height={20} viewBox="0 0 20 20" aria-hidden="true">
-        <path
-          d="M10 4v12M4 10h12"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
+        <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
       </svg>
     </button>
   );
@@ -1040,7 +1025,7 @@ function AddButton({ onClick }: { onClick: () => void }) {
 
 export default function App() {
   const [novels, setNovels] = useState<Novel[]>([]);
-  
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [authorFilter, setAuthorFilter] = useState<string>("all");
@@ -1069,17 +1054,12 @@ export default function App() {
   }, [novels]);
 
   const authorChoices = useMemo(
-    () =>
-      [...new Set(novels.map((n) => n.author).filter((a): a is string => !!a))].sort((a, b) =>
-        a.localeCompare(b)
-      ),
+    () => [...new Set(novels.map((n) => n.author).filter((a): a is string => !!a))].sort((a, b) => a.localeCompare(b)),
     [novels]
   );
 
   function toggleTag(tag: string) {
-    setTagFilter((current) =>
-      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]
-    );
+    setTagFilter((current) => (current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]));
   }
 
   function clearFilters() {
@@ -1161,9 +1141,11 @@ export default function App() {
   async function handleExport() {
     try {
       const saved = await exportToFile();
-      notify(saved
-        ? "Exported to file — novels, progress, aliases, sources, site links, reading log, tag names"
-        : "Export cancelled — nothing was written");
+      notify(
+        saved
+          ? "Exported to file — novels, progress, aliases, sources, site links, reading log, tag names"
+          : "Export cancelled — nothing was written"
+      );
     } catch (e) {
       console.error("export failed:", e);
       notify("Export failed — see the console for details", true);
@@ -1250,18 +1232,15 @@ export default function App() {
           try {
             const before = await getAllNovels();
             const live = before.find((n) => n.id === data.id) as Novel | undefined;
-            const chapterUntouched = !editTarget
-              || data.current_chapter_raw === editTarget.current_chapter_raw;
+            const chapterUntouched = !editTarget || data.current_chapter_raw === editTarget.current_chapter_raw;
             const authorUntouched = !editTarget || data.author === editTarget.author;
-            const tagsUntouched = !editTarget
-              || JSON.stringify(data.tags) === JSON.stringify(editTarget.tags);
+            const tagsUntouched = !editTarget || JSON.stringify(data.tags) === JSON.stringify(editTarget.tags);
 
             const payload = {
               ...data,
-              current_chapter_raw: chapterUntouched && live
-                ? live.current_chapter_raw ?? ""
-                : data.current_chapter_raw,
-              author: authorUntouched && live ? live.author ?? "" : data.author,
+              current_chapter_raw:
+                chapterUntouched && live ? (live.current_chapter_raw ?? "") : data.current_chapter_raw,
+              author: authorUntouched && live ? (live.author ?? "") : data.author,
               tags: tagsUntouched && live ? live.tags : data.tags,
             };
 
@@ -1293,95 +1272,112 @@ export default function App() {
 
       {page === "stats" && <StatsPanel onExport={handleExport} onRestore={handleRestore} />}
 
-      {page === "library" && <div style={styles.toolbar}>
-        <div style={styles.searchWrap}>
-          <span style={styles.searchIcon} aria-hidden="true">⌕</span>
-          <input
-            style={{
-              ...styles.searchInput,
-              paddingRight: search ? 32 : 10,  // make room for clear btn
-            }}
-            placeholder="Search titles, authors, notes…"
-            aria-label="Search novels by title, alias, author or notes"
-            autoComplete="off"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          {search && (
-            <button
-              style={styles.searchClear}
-              aria-label="Clear search"
-              onClick={() => setSearch("")}
+      {page === "library" && (
+        <div style={styles.toolbar}>
+          <div style={styles.searchWrap}>
+            <span style={styles.searchIcon} aria-hidden="true">
+              ⌕
+            </span>
+            <input
+              style={{
+                ...styles.searchInput,
+                paddingRight: search ? 32 : 10, // make room for clear btn
+              }}
+              placeholder="Search titles, authors, notes…"
+              aria-label="Search novels by title, alias, author or notes"
+              autoComplete="off"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button style={styles.searchClear} aria-label="Clear search" onClick={() => setSearch("")}>
+                ×
+              </button>
+            )}
+          </div>
+          <div style={styles.selectWrap}>
+            <label htmlFor="status-filter" style={styles.selectLabel}>
+              Filter
+            </label>
+            <select
+              id="status-filter"
+              style={styles.select}
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as Status | "all")}
             >
-              ×
+              <option value="all">All Status</option>
+              {(Object.keys(STATUS_META) as Status[]).map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_META[s].label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={styles.selectWrap}>
+            <label htmlFor="author-filter" style={styles.selectLabel}>
+              Author
+            </label>
+            <select
+              id="author-filter"
+              style={styles.select}
+              value={authorFilter}
+              disabled={authorChoices.length === 0}
+              onChange={(e) => setAuthorFilter(e.target.value)}
+            >
+              <option value="all">All Authors</option>
+              {authorChoices.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={styles.selectWrap}>
+            <label htmlFor="sort-key" style={styles.selectLabel}>
+              Sort
+            </label>
+            <select
+              id="sort-key"
+              style={styles.select}
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+            >
+              <option value="updated">Last Updated</option>
+              <option value="title">Title A–Z</option>
+              <option value="chapter">Chapter</option>
+            </select>
+          </div>
+          <div style={styles.viewToggle}>
+            <button
+              style={getViewBtnStyle(viewMode === "list")}
+              aria-label="List view"
+              aria-pressed={viewMode === "list"}
+              title="List view"
+              onClick={() => setViewMode("list")}
+            >
+              ☰
             </button>
-          )}
+            <button
+              style={getViewBtnStyle(viewMode === "grid")}
+              aria-label="Grid view"
+              aria-pressed={viewMode === "grid"}
+              title="Grid view"
+              onClick={() => setViewMode("grid")}
+            >
+              ⊞
+            </button>
+            <button
+              style={getViewBtnStyle(viewMode === "compact")}
+              aria-label="Compact view"
+              aria-pressed={viewMode === "compact"}
+              title="Compact view"
+              onClick={() => setViewMode("compact")}
+            >
+              ▤
+            </button>
+          </div>
         </div>
-        <div style={styles.selectWrap}>
-          <label htmlFor="status-filter" style={styles.selectLabel}>Filter</label>
-          <select
-            id="status-filter"
-            style={styles.select}
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as Status | "all")}
-          >
-            <option value="all">All Status</option>
-            {(Object.keys(STATUS_META) as Status[]).map((s) => (
-              <option key={s} value={s}>{STATUS_META[s].label}</option>
-            ))}
-          </select>
-        </div>
-        <div style={styles.selectWrap}>
-          <label htmlFor="author-filter" style={styles.selectLabel}>Author</label>
-          <select
-            id="author-filter"
-            style={styles.select}
-            value={authorFilter}
-            disabled={authorChoices.length === 0}
-            onChange={(e) => setAuthorFilter(e.target.value)}
-          >
-            <option value="all">All Authors</option>
-            {authorChoices.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
-        <div style={styles.selectWrap}>
-          <label htmlFor="sort-key" style={styles.selectLabel}>Sort</label>
-          <select
-            id="sort-key"
-            style={styles.select}
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
-          >
-            <option value="updated">Last Updated</option>
-            <option value="title">Title A–Z</option>
-            <option value="chapter">Chapter</option>
-          </select>
-        </div>
-        <div style={styles.viewToggle}>
-          <button
-            style={getViewBtnStyle(viewMode === "list")}
-            aria-label="List view"
-            aria-pressed={viewMode === "list"}
-            title="List view"
-            onClick={() => setViewMode("list")}
-          >☰</button>
-          <button
-            style={getViewBtnStyle(viewMode === "grid")}
-            aria-label="Grid view"
-            aria-pressed={viewMode === "grid"}
-            title="Grid view"
-            onClick={() => setViewMode("grid")}
-          >⊞</button>
-          <button
-            style={getViewBtnStyle(viewMode === "compact")}
-            aria-label="Compact view"
-            aria-pressed={viewMode === "compact"}
-            title="Compact view"
-            onClick={() => setViewMode("compact")}
-          >▤</button>
-          
-        </div>
-      </div>}
+      )}
 
       {/* Tags are captured from four sites and analysed on the stats page — here
           they're a way to find things again */}
@@ -1410,90 +1406,82 @@ export default function App() {
         </div>
       )}
 
-      {page === "library" && <div style={styles.countBar}>
-        {filtered.length} {filtered.length === 1 ? "novel" : "novels"}
-        {statusFilter !== "all" && ` · ${statusMeta(statusFilter).label}`}
-        {authorFilter !== "all" && ` · ${authorFilter}`}
-        {tagFilter.length > 0 && ` · ${tagFilter.join(" + ")}`}
-        {search && ` · "${search}"`}
-      </div>}
-
-      {page === "library" && <main style={styles.main}>
-        {loadError ? (
-          <div style={{ ...styles.emptyState, color: "#f87171" }}>
-            Couldn't load your library.
-            <div style={{ fontSize: 12, color: "#f87171", marginTop: 8, letterSpacing: 0 }}>
-              {loadError}
-            </div>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div style={styles.emptyState}>
-            {novels.length === 0 ? "Your library is empty." : "No novels match those filters."}
-            <div style={styles.emptyHint}>
-              {novels.length === 0
-                ? "Add the first one with the + button in the corner, or open a site you read on and let the extension catch it."
-                : "Try a different search, or clear the tag and author filters above."}
-            </div>
-          </div>
-        ) : viewMode === "list" ? (
-          <table style={styles.listTable}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Title</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Chapter</th>
-                <th style={styles.th}>Source</th>
-                <th style={styles.th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((n) => (
-                <ListRow 
-                  key={n.id} 
-                  novel={n} 
-                  onQuickUpdate={setQuickUpdateTarget} 
-                  onOpen={openNovel}
-                />
-              ))}
-            </tbody>
-          </table>
-        ) : viewMode === "compact" ? (
-          <div style={styles.compactGrid}>
-          {filtered.map((n) => (
-            <div
-              key={n.id}
-              role="button"
-              tabIndex={0}
-              aria-label={`Edit ${n.canonical_title}`}
-              style={styles.compactCard}
-              onClick={() => setEditTarget(toEditData(n))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setEditTarget(toEditData(n));
-                }
-              }}
-            >
-              <div style={styles.compactTitle}>{n.canonical_title}</div>
-              <span style={{ ...getStatusBadgeStyle(n.status), fontSize: 9, padding: "1px 6px" }}>
-                {statusMeta(n.status).label}
-              </span>
-            </div>
-          ))}
+      {page === "library" && (
+        <div style={styles.countBar}>
+          {filtered.length} {filtered.length === 1 ? "novel" : "novels"}
+          {statusFilter !== "all" && ` · ${statusMeta(statusFilter).label}`}
+          {authorFilter !== "all" && ` · ${authorFilter}`}
+          {tagFilter.length > 0 && ` · ${tagFilter.join(" + ")}`}
+          {search && ` · "${search}"`}
         </div>
-        ) : (
-          <div style={styles.grid}>
-            {filtered.map((n) => (
-              <GridCard
-                key={n.id} 
-                novel={n} 
-                onQuickUpdate={setQuickUpdateTarget} 
-                onOpen={openNovel}
-                />
-            ))}
-          </div>
-        )}
-      </main>}
+      )}
+
+      {page === "library" && (
+        <main style={styles.main}>
+          {loadError ? (
+            <div style={{ ...styles.emptyState, color: "#f87171" }}>
+              Couldn't load your library.
+              <div style={{ fontSize: 12, color: "#f87171", marginTop: 8, letterSpacing: 0 }}>{loadError}</div>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={styles.emptyState}>
+              {novels.length === 0 ? "Your library is empty." : "No novels match those filters."}
+              <div style={styles.emptyHint}>
+                {novels.length === 0
+                  ? "Add the first one with the + button in the corner, or open a site you read on and let the extension catch it."
+                  : "Try a different search, or clear the tag and author filters above."}
+              </div>
+            </div>
+          ) : viewMode === "list" ? (
+            <table style={styles.listTable}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Title</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Chapter</th>
+                  <th style={styles.th}>Source</th>
+                  <th style={styles.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((n) => (
+                  <ListRow key={n.id} novel={n} onQuickUpdate={setQuickUpdateTarget} onOpen={openNovel} />
+                ))}
+              </tbody>
+            </table>
+          ) : viewMode === "compact" ? (
+            <div style={styles.compactGrid}>
+              {filtered.map((n) => (
+                <div
+                  key={n.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Edit ${n.canonical_title}`}
+                  style={styles.compactCard}
+                  onClick={() => setEditTarget(toEditData(n))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setEditTarget(toEditData(n));
+                    }
+                  }}
+                >
+                  <div style={styles.compactTitle}>{n.canonical_title}</div>
+                  <span style={{ ...getStatusBadgeStyle(n.status), fontSize: 9, padding: "1px 6px" }}>
+                    {statusMeta(n.status).label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={styles.grid}>
+              {filtered.map((n) => (
+                <GridCard key={n.id} novel={n} onQuickUpdate={setQuickUpdateTarget} onOpen={openNovel} />
+              ))}
+            </div>
+          )}
+        </main>
+      )}
 
       {page === "library" && <AddButton onClick={() => setAddPanelOpen(true)} />}
 

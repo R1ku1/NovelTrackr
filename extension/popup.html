@@ -1,227 +1,248 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    
-    body {
-      width: 320px;
-      background: #0f0f13;
-      color: #e8e6e1;
-      font-family: 'Georgia', serif;
-      font-size: 13px;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-    .header {
-      padding: 14px 16px 12px;
-      border-bottom: 1px solid #1e1e28;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
+      body {
+        width: 320px;
+        background: #0f0f13;
+        color: #e8e6e1;
+        font-family: "Georgia", serif;
+        font-size: 13px;
+      }
 
-    .logo {
-      font-size: 15px;
-      font-weight: 700;
-      font-style: italic;
-      opacity: 0.9;
-    }
+      .header {
+        padding: 14px 16px 12px;
+        border-bottom: 1px solid #1e1e28;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
 
-    .status-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #333;
-    }
-    .status-dot.online { background: #4ade80; }
-    .status-dot.offline { background: #f87171; }
+      .logo {
+        font-size: 15px;
+        font-weight: 700;
+        font-style: italic;
+        opacity: 0.9;
+      }
 
-    .body { padding: 16px; }
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #333;
+      }
+      .status-dot.online {
+        background: #4ade80;
+      }
+      .status-dot.offline {
+        background: #f87171;
+      }
 
-    .state-idle {
-      color: #8a8a96;
-      font-size: 12px;
-      text-align: center;
-      padding: 20px 0;
-      letter-spacing: 0.05em;
-    }
+      .body {
+        padding: 16px;
+      }
 
-    .state-offline {
-      color: #f87171;
-      font-size: 12px;
-      text-align: center;
-      padding: 20px 0;
-    }
+      .state-idle {
+        color: #8a8a96;
+        font-size: 12px;
+        text-align: center;
+        padding: 20px 0;
+        letter-spacing: 0.05em;
+      }
 
-    .detection-label {
-      font-size: 9px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: #9a9a9a;
-      margin-bottom: 8px;
-    }
+      .state-offline {
+        color: #f87171;
+        font-size: 12px;
+        text-align: center;
+        padding: 20px 0;
+      }
 
-    .detected-title {
-      font-size: 15px;
-      font-weight: 700;
-      font-style: italic;
-      color: #e8e6e1;
-      margin-bottom: 4px;
-      line-height: 1.2;
-    }
+      .detection-label {
+        font-size: 9px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #9a9a9a;
+        margin-bottom: 8px;
+      }
 
-    .detected-chapter {
-      font-size: 12px;
-      color: #888;
-      margin-bottom: 16px;
-    }
+      .detected-title {
+        font-size: 15px;
+        font-weight: 700;
+        font-style: italic;
+        color: #e8e6e1;
+        margin-bottom: 4px;
+        line-height: 1.2;
+      }
 
-    /* Known novel — one click update */
-    .btn-update {
-      width: 100%;
-      background: #e8e6e1;
-      color: #0f0f13;
-      border: none;
-      padding: 10px;
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 700;
-      border-radius: 20px;
-      cursor: pointer;
-      letter-spacing: 0.05em;
-      margin-bottom: 8px;
-    }
+      .detected-chapter {
+        font-size: 12px;
+        color: #888;
+        margin-bottom: 16px;
+      }
 
-    .btn-ignore {
-      width: 100%;
-      background: transparent;
-      color: #9a9a9a;
-      border: 1px solid #2a2a35;
-      padding: 8px;
-      font-family: inherit;
-      font-size: 12px;
-      border-radius: 20px;
-      cursor: pointer;
-    }
+      /* Known novel — one click update */
+      .btn-update {
+        width: 100%;
+        background: #e8e6e1;
+        color: #0f0f13;
+        border: none;
+        padding: 10px;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        border-radius: 20px;
+        cursor: pointer;
+        letter-spacing: 0.05em;
+        margin-bottom: 8px;
+      }
 
-    /* What a card says between the click and the app's answer */
-    .state-busy {
-      color: #888;
-      font-size: 12px;
-      font-style: italic;
-      text-align: center;
-      padding: 6px 0;
-    }
+      .btn-ignore {
+        width: 100%;
+        background: transparent;
+        color: #9a9a9a;
+        border: 1px solid #2a2a35;
+        padding: 8px;
+        font-family: inherit;
+        font-size: 12px;
+        border-radius: 20px;
+        cursor: pointer;
+      }
 
-    /* Each offer on the page is its own card, and the one footer sits below all of
+      /* What a card says between the click and the app's answer */
+      .state-busy {
+        color: #888;
+        font-size: 12px;
+        font-style: italic;
+        text-align: center;
+        padding: 6px 0;
+      }
+
+      /* Each offer on the page is its own card, and the one footer sits below all of
        them — never between two of them */
-    .card {
-      margin-top: 14px;
-      padding-top: 12px;
-      border-top: 1px solid #22222e;
-    }
-    .card .success,
-    .card .state-offline {
-      padding: 6px 0;
-      text-align: left;
-    }
-    /* Unknown novel — candidate list */
-    .candidate-label {
-      font-size: 10px;
-      color: #9a9a9a;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-    }
+      .card {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid #22222e;
+      }
+      .card .success,
+      .card .state-offline {
+        padding: 6px 0;
+        text-align: left;
+      }
+      /* Unknown novel — candidate list */
+      .candidate-label {
+        font-size: 10px;
+        color: #9a9a9a;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
 
-    .candidate {
-      display: flex;
-      align-items: center;
-      width: 100%;
-      padding: 9px 10px;
-      border: 1px solid #1e1e28;
-      border-radius: 8px;
-      margin-bottom: 6px;
-      background: transparent;
-      color: inherit;
-      font-family: inherit;
-      font-size: inherit;
-      text-align: left;
-      cursor: pointer;
-      transition: border-color 0.1s, background 0.1s;
-    }
-    .candidate:hover {
-      border-color: #60a5fa55;
-      background: #60a5fa08;
-    }
-    .candidate-title {
-      flex: 1;
-      font-size: 13px;
-      color: #ccc;
-    }
-    .candidate-chapter {
-      font-size: 11px;
-      color: #8a8a96;
-      font-style: italic;
-    }
+      .candidate {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 9px 10px;
+        border: 1px solid #1e1e28;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        background: transparent;
+        color: inherit;
+        font-family: inherit;
+        font-size: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition:
+          border-color 0.1s,
+          background 0.1s;
+      }
+      .candidate:hover {
+        border-color: #60a5fa55;
+        background: #60a5fa08;
+      }
+      .candidate-title {
+        flex: 1;
+        font-size: 13px;
+        color: #ccc;
+      }
+      .candidate-chapter {
+        font-size: 11px;
+        color: #8a8a96;
+        font-style: italic;
+      }
 
-    .not-in-library {
-      display: block;
-      width: 100%;
-      font-size: 11px;
-      font-family: inherit;
-      color: #9a9a9a;
-      background: none;
-      border: none;
-      padding: 0;
-      text-align: center;
-      margin-top: 10px;
-      cursor: pointer;
-      letter-spacing: 0.04em;
-    }
-    .not-in-library:hover { color: #888; }
+      .not-in-library {
+        display: block;
+        width: 100%;
+        font-size: 11px;
+        font-family: inherit;
+        color: #9a9a9a;
+        background: none;
+        border: none;
+        padding: 0;
+        text-align: center;
+        margin-top: 10px;
+        cursor: pointer;
+        letter-spacing: 0.04em;
+      }
+      .not-in-library:hover {
+        color: #888;
+      }
 
-    button:focus-visible,
-    .search-input:focus-visible {
-      outline: 2px solid #60a5fa;
-      outline-offset: 2px;
-    }
+      button:focus-visible,
+      .search-input:focus-visible {
+        outline: 2px solid #60a5fa;
+        outline-offset: 2px;
+      }
 
-    /* The one field in the popup: finding a novel by name when the page's own
+      /* The one field in the popup: finding a novel by name when the page's own
        title told us nothing */
-    .search-input {
-      width: 100%;
-      background: #16161d;
-      border: 1px solid #2a2a35;
-      border-radius: 8px;
-      color: #e8e6e1;
-      font-family: inherit;
-      font-size: 13px;
-      padding: 8px 10px;
-    }
-    .search-input::placeholder { color: #9a9a9a; }
-    .search-input:focus {
-      outline: none;
-      border-color: #60a5fa66;
-    }
+      .search-input {
+        width: 100%;
+        background: #16161d;
+        border: 1px solid #2a2a35;
+        border-radius: 8px;
+        color: #e8e6e1;
+        font-family: inherit;
+        font-size: 13px;
+        padding: 8px 10px;
+      }
+      .search-input::placeholder {
+        color: #9a9a9a;
+      }
+      .search-input:focus {
+        outline: none;
+        border-color: #60a5fa66;
+      }
 
-    .success {
-      text-align: center;
-      padding: 20px 0;
-      color: #4ade80;
-      font-size: 13px;
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <span class="logo">Noveltrackr</span>
-    <div class="status-dot" id="statusDot" role="status" aria-label="Checking whether the Noveltrackr app is running"></div>
-  </div>
-  <div class="body" id="body">
-    <div class="state-idle">No chapter detected on this page.</div>
-  </div>
-  <script src="popup.js"></script>
-</body>
+      .success {
+        text-align: center;
+        padding: 20px 0;
+        color: #4ade80;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <span class="logo">Noveltrackr</span>
+      <div
+        class="status-dot"
+        id="statusDot"
+        role="status"
+        aria-label="Checking whether the Noveltrackr app is running"
+      ></div>
+    </div>
+    <div class="body" id="body">
+      <div class="state-idle">No chapter detected on this page.</div>
+    </div>
+    <script src="popup.js"></script>
+  </body>
 </html>

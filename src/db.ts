@@ -5,19 +5,21 @@ let _loading: Promise<Database> | null = null;
 
 export async function getDb(): Promise<Database> {
   if (_db) return _db;
-  
+
   // If already loading, wait for that same promise instead of starting a new one
   if (_loading) return _loading;
-  
-  _loading = Database.load("sqlite:noveltrackr.db").then((db) => {
-    _db = db;
-    _loading = null;
-    return db;
-  }).catch((e) => {
-    // Don't cache a failed load — every later call would rethrow the same error
-    _loading = null;
-    throw e;
-  });
+
+  _loading = Database.load("sqlite:noveltrackr.db")
+    .then((db) => {
+      _db = db;
+      _loading = null;
+      return db;
+    })
+    .catch((e) => {
+      // Don't cache a failed load — every later call would rethrow the same error
+      _loading = null;
+      throw e;
+    });
 
   return _loading;
 }

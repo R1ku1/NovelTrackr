@@ -13,7 +13,10 @@ const read = (f) => readFileSync(path.join(dir, f), "utf8");
 
 const silent = { log() {}, error() {}, warn() {} };
 
-function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending = null, nuSaved = null, nuRelease = null, linkResult = null } = {}) {
+function makeChrome(
+  storage = {},
+  { badge = "", coverPending = null, nuPending = null, nuSaved = null, nuRelease = null, linkResult = null } = {}
+) {
   const calls = { badge: [], messages: [], tabs: [] };
   const listeners = {};
   return {
@@ -23,11 +26,17 @@ function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending =
       local: {
         get: async (key) => ({ [key]: storage[key] }),
         set: async (obj) => Object.assign(storage, obj),
-        remove: async (key) => { delete storage[key]; },
+        remove: async (key) => {
+          delete storage[key];
+        },
       },
     },
     runtime: {
-      onMessage: { addListener(fn) { listeners.message = fn; } },
+      onMessage: {
+        addListener(fn) {
+          listeners.message = fn;
+        },
+      },
       sendMessage: async (msg) => {
         calls.messages.push(msg);
         if (msg.type === "GET_COVER_PENDING") return coverPending;
@@ -42,15 +51,26 @@ function makeChrome(storage = {}, { badge = "", coverPending = null, nuPending =
     tabs: {
       query: (_q, cb) => {
         const tabs = [{ id: 7 }];
-        if (typeof cb === "function") { cb(tabs); return undefined; }
+        if (typeof cb === "function") {
+          cb(tabs);
+          return undefined;
+        }
         return Promise.resolve(tabs);
       },
       update: async (id, props) => {
         calls.tabs.push({ id, ...props });
         return [{ id }];
       },
-      onRemoved: { addListener(fn) { listeners.removed = fn; } },
-      onUpdated: { addListener(fn) { listeners.updated = fn; } },
+      onRemoved: {
+        addListener(fn) {
+          listeners.removed = fn;
+        },
+      },
+      onUpdated: {
+        addListener(fn) {
+          listeners.updated = fn;
+        },
+      },
     },
     action: {
       getBadgeText: async () => (typeof badge === "function" ? badge() : badge),
@@ -136,7 +156,9 @@ function makeDom() {
         dataset: {},
         onclick: null,
         attributes: {},
-        setAttribute(name, value) { this.attributes[name] = value; },
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        },
       };
       Object.defineProperty(node, "innerHTML", {
         get: () => node._html || "",
@@ -187,7 +209,10 @@ function makeDom() {
   // spread into this realm: objects created inside the vm context have a different Object.prototype
   assert.deepEqual({ ...storage.cover_7 }, { ...detection, type: "add" }, "unknown novel must queue an 'add' prompt");
   assert.ok(chrome.calls.badge.includes("+"), "unknown novel must set the badge so the popup opens");
-  assert.ok(calls.some(c => c.url.endsWith("/novels")), "should fuzzy-match against the library");
+  assert.ok(
+    calls.some((c) => c.url.endsWith("/novels")),
+    "should fuzzy-match against the library"
+  );
   console.log("\u2713 background.js queues an add-to-library prompt for unknown novels");
 
   // Every request must now carry the header the server requires
@@ -206,12 +231,14 @@ function makeDom() {
 {
   const storage = {};
   const chrome = makeChrome(storage);
-  const novels = [{
-    id: 3,
-    canonical_title: "Editor\u2019s Survival Guide",
-    aliases: [],
-    current_chapter_raw: "Chapter 12",
-  }];
+  const novels = [
+    {
+      id: 3,
+      canonical_title: "Editor\u2019s Survival Guide",
+      aliases: [],
+      current_chapter_raw: "Chapter 12",
+    },
+  ];
   const { calls: novelCalls, fetchStub } = makeFetch(novels);
   const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
@@ -244,7 +271,19 @@ function makeDom() {
   const { el, document } = makeDom();
   const window = { close() {} };
 
-  const ctx = vm.createContext({ chrome, document, window, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window,
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
+    Promise,
+  });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
   await tick(); // let init()'s promise chain settle
 
@@ -254,16 +293,19 @@ function makeDom() {
   await el("btnAdd").onclick();
   await tick();
 
-  const quickAdd = calls.find(c => c.url.endsWith("/quick-add"));
+  const quickAdd = calls.find((c) => c.url.endsWith("/quick-add"));
   assert.deepEqual(quickAdd?.body, { title: pending.title, chapter_raw: "" }, "must quick-add with no chapter");
-  assert.deepEqual(calls.find(c => c.url.endsWith("/cover"))?.body, { novel_id: 42, cover_url: pending.coverUrl });
-  assert.deepEqual(calls.find(c => c.url.endsWith("/mappings"))?.body, {
+  assert.deepEqual(calls.find((c) => c.url.endsWith("/cover"))?.body, { novel_id: 42, cover_url: pending.coverUrl });
+  assert.deepEqual(calls.find((c) => c.url.endsWith("/mappings"))?.body, {
     domain: pending.domain,
     detected_title: pending.title,
     novel_id: 42,
   });
   assert.equal(storage["mapping:novelupdates.com:editors survival guide"], 42, "mapping must be cached locally");
-  assert.ok(chrome.calls.messages.some(m => m.type === "DISMISS_COVER"), "pending state must be cleared");
+  assert.ok(
+    chrome.calls.messages.some((m) => m.type === "DISMISS_COVER"),
+    "pending state must be cleared"
+  );
   assert.match(el("body").innerHTML, /Added to library/);
   assertAuthed(calls, "popup.js");
   console.log("\u2713 popup.js adds the novel, saves its cover and caches the mapping");
@@ -287,7 +329,19 @@ function makeDom() {
   const { fetchStub } = makeFetch([]);
   const { el, document } = makeDom();
 
-  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
+    Promise,
+  });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
   await tick();
 
@@ -307,12 +361,24 @@ function makeDom() {
     tabId: 7,
   };
   const chrome = makeChrome(storage, { badge: "+", coverPending: pending });
-  const { calls, fetchStub } = makeFetch([], {
+  const { fetchStub } = makeFetch([], {
     json: { "/quick-add": { ok: false, error: "duplicate", novel_id: 9, novel_title: "Editors Survival Guide" } },
   });
   const { el, document } = makeDom();
 
-  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
+    Promise,
+  });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
   await tick();
 
@@ -327,7 +393,10 @@ function makeDom() {
   await tick();
 
   assert.equal(storage["mapping:novelupdates.com:editors survival guide"], 9, "link must point at the existing novel");
-  assert.ok(chrome.calls.messages.some((m) => m.type === "DISMISS_COVER"), "pending must be cleared after linking");
+  assert.ok(
+    chrome.calls.messages.some((m) => m.type === "DISMISS_COVER"),
+    "pending must be cleared after linking"
+  );
   assert.match(el("body").innerHTML, /Linked to/);
   console.log("\u2713 popup.js links a duplicate to the existing novel instead of adding a copy");
 }
@@ -346,7 +415,19 @@ function makeDom() {
   const { calls, fetchStub } = makeFetch([], { fail: ["/cover"] });
   const { el, document } = makeDom();
 
-  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
+    Promise,
+  });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
   await tick();
   await el("btnAdd").onclick();
@@ -385,7 +466,9 @@ function makeDom() {
     document,
     window: { location },
     setTimeout: (fn) => timers.push(fn) - 1,
-    clearTimeout: (id) => { if (id !== null && id !== undefined) timers[id] = null; },
+    clearTimeout: (id) => {
+      if (id !== null && id !== undefined) timers[id] = null;
+    },
     console: silent,
   });
   vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
@@ -450,7 +533,7 @@ function makeDom() {
     { textContent: "LitRPG" },
     { textContent: " Progression Fantasy " },
     { textContent: "litrpg" }, // same tag, different case
-    { textContent: "" },       // stray element with nothing in it
+    { textContent: "" }, // stray element with nothing in it
   ];
   const location = {
     href: "https://www.royalroad.com/fiction/99/shadow-slave",
@@ -476,7 +559,9 @@ function makeDom() {
     document,
     window: { location },
     setTimeout: (fn) => timers.push(fn) - 1,
-    clearTimeout: (id) => { if (id !== null && id !== undefined) timers[id] = null; },
+    clearTimeout: (id) => {
+      if (id !== null && id !== undefined) timers[id] = null;
+    },
     console: silent,
   });
   vm.runInContext(read("content.js"), ctx, { filename: "content.js" });
@@ -485,7 +570,11 @@ function makeDom() {
   assert.ok(metadata, "an author on a supported site must be reported");
   assert.equal(metadata.payload.title, "Shadow Slave", "metadata must carry the resolved title");
   assert.equal(metadata.payload.author, "Guiltythree", "the author must be trimmed");
-  assert.deepEqual([...metadata.payload.tags], ["LitRPG", "Progression Fantasy"], "tags must be trimmed and de-duplicated");
+  assert.deepEqual(
+    [...metadata.payload.tags],
+    ["LitRPG", "Progression Fantasy"],
+    "tags must be trimmed and de-duplicated"
+  );
   assert.equal(metadata.payload.source, "royalroad", "tags must be labelled with the site they came from");
 
   // The cover check is queued after the look-again for a chapter list, so it is
@@ -502,12 +591,14 @@ function makeDom() {
 {
   const storage = {};
   const chrome = makeChrome(storage);
-  const novels = [{
-    id: 5,
-    canonical_title: "Shadow Slave",
-    aliases: [],
-    current_chapter_raw: "Chapter 220",
-  }];
+  const novels = [
+    {
+      id: 5,
+      canonical_title: "Shadow Slave",
+      aliases: [],
+      current_chapter_raw: "Chapter 220",
+    },
+  ];
   const { calls, fetchStub } = makeFetch(novels);
   const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
@@ -515,12 +606,16 @@ function makeDom() {
   await ctx.handleMetadataDetection({ title: "Shadow Slave", author: "Guiltythree" });
 
   const write = calls.find((c) => c.url.endsWith("/metadata"));
-  assert.deepEqual(write?.body, {
-    novel_id: 5,
-    author: "Guiltythree",
-    tags: null,
-    source: null,
-  }, "the matched novel gets the author");
+  assert.deepEqual(
+    write?.body,
+    {
+      novel_id: 5,
+      author: "Guiltythree",
+      tags: null,
+      source: null,
+    },
+    "the matched novel gets the author"
+  );
   assert.equal(chrome.calls.badge.length, 0, "passive metadata must never touch the badge");
   assertAuthed(calls, "background.js (metadata)");
 
@@ -532,14 +627,19 @@ function makeDom() {
     tags: ["LitRPG", "Progression Fantasy"],
     source: "royalroad",
   });
-  assert.deepEqual(calls.find((c) => c.url.endsWith("/metadata"))?.body, {
-    novel_id: 5,
-    author: null,
-    tags: ["LitRPG", "Progression Fantasy"],
-    source: "royalroad",
-  }, "tags must be written with the site they came from");
+  assert.deepEqual(
+    calls.find((c) => c.url.endsWith("/metadata"))?.body,
+    {
+      novel_id: 5,
+      author: null,
+      tags: ["LitRPG", "Progression Fantasy"],
+      source: "royalroad",
+    },
+    "tags must be written with the site they came from"
+  );
   assert.equal(
-    calls.filter((c) => c.url.endsWith("/tag-vocabulary")).length, 0,
+    calls.filter((c) => c.url.endsWith("/tag-vocabulary")).length,
+    0,
     "only NovelUpdates' tags are canonical enough to teach the vocabulary"
   );
 
@@ -567,7 +667,19 @@ function makeDom() {
   const { calls, fetchStub } = makeFetch([]);
   const { el, document } = makeDom();
 
-  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
+    Promise,
+  });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
   await tick();
 
@@ -575,13 +687,17 @@ function makeDom() {
   await tick();
 
   const quickAdd = calls.find((c) => c.url.endsWith("/quick-add"));
-  assert.deepEqual(quickAdd?.body, {
-    title: pending.title,
-    chapter_raw: "",
-    author: "Guiltythree",
-    tags: ["LitRPG", "Progression Fantasy"],
-    source: "royalroad",
-  }, "the detected author and tags must be saved with the add");
+  assert.deepEqual(
+    quickAdd?.body,
+    {
+      title: pending.title,
+      chapter_raw: "",
+      author: "Guiltythree",
+      tags: ["LitRPG", "Progression Fantasy"],
+      source: "royalroad",
+    },
+    "the detected author and tags must be saved with the add"
+  );
   console.log("\u2713 popup.js saves the author and tags it detected on the novel page");
 }
 
@@ -589,21 +705,28 @@ function makeDom() {
 {
   const storage = {};
   const chrome = makeChrome(storage);
-  const novels = [{
-    id: 5,
-    canonical_title: "Shadow Slave",
-    aliases: [],
-    current_chapter_raw: null,
-  }];
+  const novels = [
+    {
+      id: 5,
+      canonical_title: "Shadow Slave",
+      aliases: [],
+      current_chapter_raw: null,
+    },
+  ];
   const { calls, fetchStub } = makeFetch(novels);
   const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
 
   let replied = null;
   chrome.listeners.message(
-    { type: "SAVE_COVER", payload: { novelId: 5, coverUrl: "https://cdn.royalroadcdn.com/cover.jpg", author: "Guiltythree", tabId: 7 } },
+    {
+      type: "SAVE_COVER",
+      payload: { novelId: 5, coverUrl: "https://cdn.royalroadcdn.com/cover.jpg", author: "Guiltythree", tabId: 7 },
+    },
     {},
-    (r) => { replied = r; }
+    (r) => {
+      replied = r;
+    }
   );
   await tick();
 
@@ -681,7 +804,7 @@ function makeDom() {
   const anchors = [
     { href: "https://www.novelupdates.com/series/shadow-slave/", textContent: "Shadow Slave" },
     { href: "https://www.novelupdates.com/series/shadow-slave/", textContent: "Shadow Slave" }, // duplicate link
-    { href: "https://www.novelupdates.com/user/guiltythree/", textContent: "Guiltythree" },      // not a series
+    { href: "https://www.novelupdates.com/user/guiltythree/", textContent: "Guiltythree" }, // not a series
     { href: "https://www.novelupdates.com/series/shadow-slave-2/", textContent: "Shadow Slave 2" },
   ];
   const location = {
@@ -724,12 +847,14 @@ function makeDom() {
 {
   const storage = {};
   const chrome = makeChrome(storage);
-  const novels = [{
-    id: 5,
-    canonical_title: "Shadow Slave",
-    aliases: [],
-    current_chapter_raw: "Chapter 220",
-  }];
+  const novels = [
+    {
+      id: 5,
+      canonical_title: "Shadow Slave",
+      aliases: [],
+      current_chapter_raw: "Chapter 220",
+    },
+  ];
   const { calls, fetchStub } = makeFetch(novels);
   const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
@@ -793,7 +918,19 @@ function makeDom() {
   const { fetchStub } = makeFetch([]);
   const { el, document } = makeDom();
 
-  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
+    Promise,
+  });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
   await tick();
 
@@ -812,9 +949,7 @@ function makeDom() {
 
 // ── 17. content.js: results are recognised even when the URL says nothing ────
 {
-  const anchors = [
-    { href: "https://www.novelupdates.com/series/shadow-slave/", textContent: "Shadow Slave" },
-  ];
+  const anchors = [{ href: "https://www.novelupdates.com/series/shadow-slave/", textContent: "Shadow Slave" }];
   const box = { value: "Shadow Slave" };
   const location = {
     href: "https://www.novelupdates.com/what/ever/nu/uses/now",
@@ -853,7 +988,15 @@ function makeDom() {
   let submitted = 0;
   let appended = 0;
   let hint = null;
-  const box = { value: "", focus: () => {}, form: { requestSubmit: () => { submitted += 1; } } };
+  const box = {
+    value: "",
+    focus: () => {},
+    form: {
+      requestSubmit: () => {
+        submitted += 1;
+      },
+    },
+  };
   let clearedTo = null;
   const location = {
     href: "https://www.novelupdates.com/#noveltrackr=Shadow%20Slave",
@@ -872,14 +1015,25 @@ function makeDom() {
       hint = { style: {}, textContent: "", href: "", appendChild: () => {}, remove: () => {} };
       return hint;
     },
-    body: { appendChild: () => { appended += 1; } },
+    body: {
+      appendChild: () => {
+        appended += 1;
+      },
+    },
     addEventListener: () => {},
   };
 
   const ctx = vm.createContext({
     chrome,
     document,
-    window: { location, history: { replaceState: (_state, _title, url) => { clearedTo = url; } } },
+    window: {
+      location,
+      history: {
+        replaceState: (_state, _title, url) => {
+          clearedTo = url;
+        },
+      },
+    },
     setTimeout: () => 0,
     clearTimeout: () => {},
     console: silent,
@@ -917,14 +1071,25 @@ function makeDom() {
       anchor = { style: {}, textContent: "", href: "", appendChild: () => {}, remove: () => {} };
       return anchor;
     },
-    body: { appendChild: () => { appended += 1; } },
+    body: {
+      appendChild: () => {
+        appended += 1;
+      },
+    },
     addEventListener: () => {},
   };
 
   const ctx = vm.createContext({
     chrome,
     document,
-    window: { location, history: { replaceState: (_state, _title, url) => { clearedTo = url; } } },
+    window: {
+      location,
+      history: {
+        replaceState: (_state, _title, url) => {
+          clearedTo = url;
+        },
+      },
+    },
     setTimeout: () => 0,
     clearTimeout: () => {},
     console: silent,
@@ -933,7 +1098,8 @@ function makeDom() {
 
   assert.equal(appended, 1, "the user must be offered something to click");
   assert.equal(
-    anchor.href, "https://www.novelupdates.com/?s=Shadow%20Slave",
+    anchor.href,
+    "https://www.novelupdates.com/?s=Shadow%20Slave",
     "the offer must be NU's own search URL, for the user to click"
   );
   assert.equal(chrome.calls.messages.length, 0, "nothing may navigate or search behind the user's back");
@@ -965,7 +1131,14 @@ function makeDom() {
   const ctx = vm.createContext({
     chrome,
     document,
-    window: { location, history: { replaceState: (_state, _title, url) => { clearedTo = url; } } },
+    window: {
+      location,
+      history: {
+        replaceState: (_state, _title, url) => {
+          clearedTo = url;
+        },
+      },
+    },
     setTimeout: (fn) => timers.push(fn) - 1,
     clearTimeout: () => {},
     console: silent,
@@ -982,13 +1155,15 @@ function makeDom() {
 {
   const storage = {};
   const chrome = makeChrome(storage);
-  const novels = [{
-    id: 5,
-    canonical_title: "Shadow Slave",
-    aliases: [],
-    current_chapter_raw: null,
-  }];
-  const { calls, fetchStub } = makeFetch(novels);
+  const novels = [
+    {
+      id: 5,
+      canonical_title: "Shadow Slave",
+      aliases: [],
+      current_chapter_raw: null,
+    },
+  ];
+  const { fetchStub } = makeFetch(novels);
   const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
 
@@ -1017,10 +1192,22 @@ function makeDom() {
     tabId: 7,
   };
   const chrome = makeChrome(storage, { badge: "+", coverPending: cover, nuSaved: saved });
-  const { calls, fetchStub } = makeFetch([]);
+  const { fetchStub } = makeFetch([]);
   const { el, document } = makeDom();
 
-  const ctx = vm.createContext({ chrome, document, window: { close() {} }, fetch: fetchStub, AbortSignal, console: silent, setTimeout: (fn) => { fn(); return 0; }, Promise });
+  const ctx = vm.createContext({
+    chrome,
+    document,
+    window: { close() {} },
+    fetch: fetchStub,
+    AbortSignal,
+    console: silent,
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
+    Promise,
+  });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
   await tick();
 
@@ -1075,7 +1262,9 @@ function makeDom() {
     document: pageDoc,
     window: { location },
     setTimeout: (fn) => pageTimers.push(fn) - 1,
-    clearTimeout: (id) => { if (id !== null && id !== undefined) pageTimers[id] = null; },
+    clearTimeout: (id) => {
+      if (id !== null && id !== undefined) pageTimers[id] = null;
+    },
     console: silent,
   });
   vm.runInContext(read("content.js"), pageCtx, { filename: "content.js" });
@@ -1099,7 +1288,11 @@ function makeDom() {
   for (let i = 0; i < 10 && !storage.cover_7; i++) await tick();
 
   assert.equal(storage.cover_7?.type, "add", "an unknown novel must still be offered as an add");
-  assert.deepEqual([...(storage.cover_7?.tags ?? [])], ["LitRPG", "Progression Fantasy"], "the add offer must carry the tags");
+  assert.deepEqual(
+    [...(storage.cover_7?.tags ?? [])],
+    ["LitRPG", "Progression Fantasy"],
+    "the add offer must carry the tags"
+  );
   assert.equal(storage.cover_7.source, "nu", "and the site they were read from");
 
   // 3. The popup — what the user clicks, with no refresh in between
@@ -1113,7 +1306,10 @@ function makeDom() {
     fetch: popupFetch,
     AbortSignal,
     console: silent,
-    setTimeout: (fn) => { fn(); return 0; },
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
     Promise,
   });
   vm.runInContext(read("popup.js"), popupCtx, { filename: "popup.js" });
@@ -1125,16 +1321,19 @@ function makeDom() {
   await tick();
 
   const quickAdd = calls.find((c) => c.url.endsWith("/quick-add"));
-  assert.deepEqual(quickAdd?.body, {
-    title: "Shadow Slave",
-    chapter_raw: "",
-    tags: ["LitRPG", "Progression Fantasy"],
-    source: "nu",
-  }, "the first add must carry the page's tags, with no refresh");
+  assert.deepEqual(
+    quickAdd?.body,
+    {
+      title: "Shadow Slave",
+      chapter_raw: "",
+      tags: ["LitRPG", "Progression Fantasy"],
+      source: "nu",
+    },
+    "the first add must carry the page's tags, with no refresh"
+  );
   assertAuthed(calls, "popup.js (add with tags)");
   console.log("\u2713 a page's tags reach the app on the first add, with no refresh");
 }
-
 
 // ── 24. content.js: a chapter menu says how far the site has got ──────────────
 {
@@ -1171,12 +1370,12 @@ function makeDom() {
   assert.deepEqual(
     { ...detected.payload.latest },
     { latest_chapter: 5, confidence: "exact" },
-    "the highest option, exact only because the menu holds the chapter being read",
+    "the highest option, exact only because the menu holds the chapter being read"
   );
   assert.equal(
     detected.payload.latest.total_chapters,
     undefined,
-    "a menu is not a table of contents, so it carries no total",
+    "a menu is not a table of contents, so it carries no total"
   );
   console.log("\u2713 content.js reads the site's latest chapter off the chapter menu");
 }
@@ -1209,11 +1408,7 @@ function makeDom() {
 
   const detected = chrome.calls.messages.find((m) => m.type === "CHAPTER_DETECTED");
   assert.ok(detected, "the chapter itself is still worth reporting");
-  assert.equal(
-    detected.payload.latest,
-    null,
-    "no evidence must arrive as no value — a blank page is not 'up to date'",
-  );
+  assert.equal(detected.payload.latest, null, "no evidence must arrive as no value — a blank page is not 'up to date'");
   console.log("\u2713 content.js reports no latest chapter when the page does not say");
 }
 
@@ -1255,11 +1450,10 @@ function makeDom() {
   assert.deepEqual(
     { ...metadata.payload.latest },
     { latest_chapter: 40, confidence: "exact", total_chapters: 40 },
-    "a list running from one is a whole table of contents: newest chapter and count",
+    "a list running from one is a whole table of contents: newest chapter and count"
   );
   console.log("\u2713 content.js reads the latest chapter and the total off a table of contents");
 }
-
 
 // ── 27. background.js: the observation rides the writes the app already takes ─
 {
@@ -1283,18 +1477,14 @@ function makeDom() {
   });
 
   // A novel the user already reads: browsing a chapter is enough, no click needed
-  chrome.listeners.message(
-    chapterPage({ latest_chapter: 40, confidence: "exact" }),
-    { tab: { id: 7 } },
-    () => {},
-  );
+  chrome.listeners.message(chapterPage({ latest_chapter: 40, confidence: "exact" }), { tab: { id: 7 } }, () => {});
   for (let i = 0; i < 10 && !calls.some((c) => c.url.endsWith("/metadata")); i++) await tick();
 
   const metadata = calls.find((c) => c.url.endsWith("/metadata"));
   assert.deepEqual(
     metadata?.body,
     { novel_id: 5, latest_chapter: 40, latest_chapter_confidence: "exact" },
-    "a known novel is told where the site is, silently",
+    "a known novel is told where the site is, silently"
   );
 
   // A page with nothing to say must not write anything at all
@@ -1305,7 +1495,7 @@ function makeDom() {
   assert.equal(
     calls.filter((c) => c.url.endsWith("/metadata")).length,
     before,
-    "no evidence means no request, so a guess can never overwrite a good number",
+    "no evidence means no request, so a guess can never overwrite a good number"
   );
 
   // And the confirmed update carries it too, on the route the popup uses
@@ -1323,7 +1513,7 @@ function makeDom() {
       },
     },
     { tab: { id: 9 } },
-    () => {},
+    () => {}
   );
   for (let i = 0; i < 10 && !calls.some((c) => c.url.endsWith("/progress")); i++) await tick();
 
@@ -1339,12 +1529,11 @@ function makeDom() {
       latest_chapter_confidence: "caught_up",
       total_chapters: 41,
     },
-    "the progress write carries what the page said",
+    "the progress write carries what the page said"
   );
   assertAuthed(calls, "background.js (latest chapter)");
   console.log("\u2713 background.js passes the observation to the routes, and only when there is one");
 }
-
 
 // ── 28. content.js: a chapter list the page renders after load ────────────────
 {
@@ -1389,7 +1578,7 @@ function makeDom() {
   assert.equal(
     chrome.calls.messages.filter((m) => m.type === "METADATA_DETECTED").length,
     0,
-    "an empty page must not be reported as anything at all",
+    "an empty page must not be reported as anything at all"
   );
 
   // The site finishes drawing the list
@@ -1404,26 +1593,23 @@ function makeDom() {
   assert.deepEqual(
     { ...metadata.payload.latest },
     { latest_chapter: 106, confidence: "exact", total_chapters: 106 },
-    "and it reads as a whole table of contents, long chapter titles included",
+    "and it reads as a whole table of contents, long chapter titles included"
   );
   console.log("\u2713 content.js waits for a chapter list the page renders late");
 }
-
 
 // ── 29. content.js: Royal Road's real table of contents ───────────────────────
 {
   const fixture = path.join(dir, "..", "royalroaddom.txt");
   if (existsSync(fixture)) {
     const html = readFileSync(fixture, "utf8");
-    const anchors = [...html.matchAll(/<a[^>]*href="([^"]*chapter\/[^"]*)"[^>]*>([\s\S]{0,60}?)<\/a>/g)].map(
-      (m) => ({
-        tagName: "A",
-        textContent: m[2].replace(/\s+/g, " ").trim(),
-        className: "",
-        getAttribute: (name) => (name === "href" ? m[1] : null),
-        hasAttribute: () => false,
-      }),
-    );
+    const anchors = [...html.matchAll(/<a[^>]*href="([^"]*chapter\/[^"]*)"[^>]*>([\s\S]{0,60}?)<\/a>/g)].map((m) => ({
+      tagName: "A",
+      textContent: m[2].replace(/\s+/g, " ").trim(),
+      className: "",
+      getAttribute: (name) => (name === "href" ? m[1] : null),
+      hasAttribute: () => false,
+    }));
 
     assert.ok(anchors.length > 50, "the fixture should carry the whole chapter list");
 
@@ -1455,7 +1641,7 @@ function makeDom() {
     assert.deepEqual(
       { ...metadata.payload.latest },
       { latest_chapter: 100, confidence: "exact", total_chapters: 100 },
-      "Royal Road writes \"1. Good Morning Brother\", so the numbered text and the URL both have to be read — and its unnumbered Afterword link must stay out",
+      'Royal Road writes "1. Good Morning Brother", so the numbered text and the URL both have to be read — and its unnumbered Afterword link must stay out'
     );
     console.log("\u2713 content.js reads Royal Road's own table of contents");
   } else {
@@ -1508,7 +1694,7 @@ function makeDom() {
   assert.deepEqual(
     { ...sent()[0]?.payload.latest },
     { latest_chapter: 5, confidence: "exact", total_chapters: 5 },
-    "the stub reads as a complete list — five chapters running up from one",
+    "the stub reads as a complete list — five chapters running up from one"
   );
 
   // The site finishes drawing the real list
@@ -1522,11 +1708,10 @@ function makeDom() {
   assert.deepEqual(
     { ...sent()[1].payload.latest },
     { latest_chapter: 100, confidence: "exact", total_chapters: 100 },
-    "and it must carry the real numbers, because the app only ever raises these",
+    "and it must carry the real numbers, because the app only ever raises these"
   );
   console.log("\u2713 content.js reports a fuller chapter list over the stub it was served first");
 }
-
 
 // ── 31. content.js: NovelUpdates is a database, not a chapter list ────────────
 {
@@ -1575,19 +1760,14 @@ function makeDom() {
   const metadata = chrome.calls.messages.find((m) => m.type === "METADATA_DETECTED");
   assert.ok(metadata, "NovelUpdates' own job — tags — must still ride along");
   assert.deepEqual([...metadata.payload.tags], ["Action", "Drama"], "the page's tags are reported");
-  assert.equal(
-    metadata.payload.latest,
-    null,
-    "another group's release numbers are not this novel's chapter count",
-  );
+  assert.equal(metadata.payload.latest, null, "another group's release numbers are not this novel's chapter count");
   assert.equal(
     timers.filter(Boolean).length,
     1,
-    "only the cover check is pending: there is no chapter list here to wait for",
+    "only the cover check is pending: there is no chapter list here to wait for"
   );
   console.log("\u2713 content.js takes NovelUpdates' tags and leaves its chapter numbers alone");
 }
-
 
 // ── 32. content.js: NovelUpdates' release table, offered not written ──────────
 {
@@ -1599,7 +1779,7 @@ function makeDom() {
     // the matched tag rather than assumed.
     const rows = [
       ...html.matchAll(
-        /<a href="https:\/\/www\.novelupdates\.com\/group\/[^"]*">([^<]{1,60})<\/a>[\s\S]{0,400}?(<a[^>]*class="chp-release"[^>]*>)/g,
+        /<a href="https:\/\/www\.novelupdates\.com\/group\/[^"]*">([^<]{1,60})<\/a>[\s\S]{0,400}?(<a[^>]*class="chp-release"[^>]*>)/g
       ),
     ]
       .map((m) => ({ group: m[1].trim(), token: m[2].match(/title="([^"]+)"/)?.[1] }))
@@ -1653,19 +1833,18 @@ function makeDom() {
         token: "c273",
         group: "KJ Translations",
       },
-      "the newest release and its group, and never as anything stronger than a lower bound",
+      "the newest release and its group, and never as anything stronger than a lower bound"
     );
     assert.equal(
       chrome.calls.messages.filter((m) => m.type === "METADATA_DETECTED").length,
       0,
-      "nothing is written from the page — this is an offer",
+      "nothing is written from the page — this is an offer"
     );
     console.log("\u2713 content.js offers NovelUpdates' newest release instead of writing it");
   } else {
     console.log("\u2013 skipped NovelUpdates release check (novelupdate.txt not present)");
   }
 }
-
 
 // ── 33. popup.js: NU's release is offered, and only written when confirmed ────
 {
@@ -1688,7 +1867,14 @@ function makeDom() {
   // close() is handed to setTimeout unbound, the way the popup does it, so it must not
   // depend on its receiver
   let closed = false;
-  const window = { get closed() { return closed; }, close() { closed = true; } };
+  const window = {
+    get closed() {
+      return closed;
+    },
+    close() {
+      closed = true;
+    },
+  };
 
   const ctx = vm.createContext({
     chrome,
@@ -1697,7 +1883,10 @@ function makeDom() {
     fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
     AbortSignal,
     console: silent,
-    setTimeout: (fn) => { fn(); return 0; },
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
     Promise,
   });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
@@ -1709,7 +1898,7 @@ function makeDom() {
   assert.equal(
     chrome.calls.messages.filter((m) => m.type === "USE_NU_RELEASE").length,
     0,
-    "showing it must not write it",
+    "showing it must not write it"
   );
 
   await el("btnUseNuRelease").onclick();
@@ -1745,7 +1934,7 @@ function makeDom() {
       },
     },
     { tab: { id: 7 } },
-    () => {},
+    () => {}
   );
   await tick();
 
@@ -1753,25 +1942,22 @@ function makeDom() {
   assert.equal(calls.filter((c) => c.url.endsWith("/metadata")).length, 0, "and nothing is written yet");
 
   let answer = null;
-  chrome.listeners.message(
-    { type: "USE_NU_RELEASE", payload: storage["nu_release_7"] },
-    { tab: { id: 7 } },
-    (r) => { answer = r; },
-  );
+  chrome.listeners.message({ type: "USE_NU_RELEASE", payload: storage["nu_release_7"] }, { tab: { id: 7 } }, (r) => {
+    answer = r;
+  });
   for (let i = 0; i < 10 && !calls.some((c) => c.url.endsWith("/metadata")); i++) await tick();
 
   const metadata = calls.find((c) => c.url.endsWith("/metadata"));
   assert.deepEqual(
     metadata?.body,
     { novel_id: 5, latest_chapter: 273, latest_chapter_confidence: "lower_bound" },
-    "the confirmed number, and never as an exact read",
+    "the confirmed number, and never as an exact read"
   );
   assert.equal(answer?.ok, true, "the popup is told it landed");
   assert.equal(storage["nu_release_7"], undefined, "and the offer is cleared once used");
   assertAuthed(calls, "background.js (NU release)");
   console.log("\u2713 background.js writes the confirmed release as a lower bound, once");
 }
-
 
 // ── 35. content.js: page numbers are not chapters ─────────────────────────────
 {
@@ -1783,8 +1969,7 @@ function makeDom() {
     tagName: "A",
     textContent: `${n}`,
     className: "",
-    getAttribute: (name) =>
-      name === "href" ? `https://www.royalroad.com/fiction/9/shadow-slave/?page=${n}` : null,
+    getAttribute: (name) => (name === "href" ? `https://www.royalroad.com/fiction/9/shadow-slave/?page=${n}` : null),
     hasAttribute: () => false,
   }));
 
@@ -1823,7 +2008,7 @@ function makeDom() {
   assert.equal(
     load(furniture, "Shadow Slave | Royal Road").length,
     0,
-    "three page links must not read as a chapter list",
+    "three page links must not read as a chapter list"
   );
 
   // The other direction still has to work: Royal Road numbers the chapter in the URL,
@@ -1839,17 +2024,14 @@ function makeDom() {
     hasAttribute: () => false,
   }));
 
-  const reported = load(realChapters, "Shadow Slave | Royal Road").find(
-    (m) => m.type === "METADATA_DETECTED",
-  );
+  const reported = load(realChapters, "Shadow Slave | Royal Road").find((m) => m.type === "METADATA_DETECTED");
   assert.deepEqual(
     { ...reported?.payload?.latest },
     { latest_chapter: 4, confidence: "exact" },
-    "a link the URL marks as a chapter is still read, bare number or not",
+    "a link the URL marks as a chapter is still read, bare number or not"
   );
   console.log("\u2713 content.js only reads numbers the page links as chapters");
 }
-
 
 // ── 36. content.js: NovelUpdates' page furniture is never a chapter list ──────
 {
@@ -1884,9 +2066,7 @@ function makeDom() {
     getAttribute: () => "//www.novelupdates.com/extnu/1/",
     hasAttribute: () => false,
     closest: (sel) =>
-      sel === "tr"
-        ? { querySelector: (s) => (s.includes("nth-child(2)") ? { textContent: group } : null) }
-        : null,
+      sel === "tr" ? { querySelector: (s) => (s.includes("nth-child(2)") ? { textContent: group } : null) } : null,
   }));
 
   const title =
@@ -1920,7 +2100,7 @@ function makeDom() {
   assert.equal(
     chrome.calls.messages.filter((m) => m.type === "METADATA_DETECTED").length,
     0,
-    "NU's page furniture must never be written as a chapter count",
+    "NU's page furniture must never be written as a chapter count"
   );
 
   const offer = chrome.calls.messages.find((m) => m.type === "NU_RELEASE_DETECTED");
@@ -1934,11 +2114,10 @@ function makeDom() {
       token: "c273",
       group: "KJ Translations",
     },
-    "the newest release and its group, unchanged by the furniture around it",
+    "the newest release and its group, unchanged by the furniture around it"
   );
   console.log("\u2713 content.js reads NovelUpdates' release table, not its page furniture");
 }
-
 
 // ── 37. content.js: a placeholder image is never offered as a cover ───────────
 {
@@ -1984,14 +2163,9 @@ function makeDom() {
 
   const offers = chrome.calls.messages.filter((m) => m.type === "COVER_DETECTED");
   assert.equal(offers.length, 1, "a placeholder must not be offered as a cover");
-  assert.equal(
-    offers[0].payload.coverUrl,
-    real.src,
-    "and the page's real image must still be found after it",
-  );
-  console.log("\u2713 content.js ignores a site's \"no cover\" placeholder");
+  assert.equal(offers[0].payload.coverUrl, real.src, "and the page's real image must still be found after it");
+  console.log('\u2713 content.js ignores a site\'s "no cover" placeholder');
 }
-
 
 // ── 38. popup.js: every offer is its own card, and Done is below all of them ──
 {
@@ -2023,7 +2197,10 @@ function makeDom() {
     fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
     AbortSignal,
     console: silent,
-    setTimeout: (fn) => { fn(); return 0; },
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
     Promise,
   });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
@@ -2046,17 +2223,19 @@ function makeDom() {
 // ── 39. background.js: a cover the library already has is not offered ────────
 {
   const coverUrl = "https://cdn.novelupdates.com/images/cover.jpg";
-  const novels = [{
-    id: 5,
-    canonical_title: "Shadow Slave",
-    aliases: [],
-    current_chapter_raw: "Chapter 12",
-    cover_url: coverUrl,
-  }];
+  const novels = [
+    {
+      id: 5,
+      canonical_title: "Shadow Slave",
+      aliases: [],
+      current_chapter_raw: "Chapter 12",
+      cover_url: coverUrl,
+    },
+  ];
 
   const storage = {};
   const chrome = makeChrome(storage);
-  const { calls, fetchStub } = makeFetch(novels);
+  const { fetchStub } = makeFetch(novels);
   const ctx = vm.createContext({ chrome, fetch: fetchStub, AbortSignal, console: silent, setTimeout, Promise });
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
 
@@ -2090,7 +2269,10 @@ function makeDom() {
     fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
     AbortSignal,
     console: silent,
-    setTimeout: (fn) => { fn(); return 0; },
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
     Promise,
   });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
@@ -2101,7 +2283,6 @@ function makeDom() {
   assert.ok(!/No chapter detected/.test(el("body").innerHTML), "and must not claim there was nothing");
   console.log("\u2713 popup.js still reports a page that only filed tags");
 }
-
 
 // ── 41. popup.js: a click answers immediately, and no card kills another's button ──
 {
@@ -2130,7 +2311,9 @@ function makeDom() {
   const waiting = {};
   chrome.runtime.sendMessage = (msg) => {
     if (msg.type === "SAVE_COVER" || msg.type === "USE_NU_RELEASE") {
-      return new Promise((resolve) => { waiting[msg.type] = resolve; });
+      return new Promise((resolve) => {
+        waiting[msg.type] = resolve;
+      });
     }
     if (msg.type === "GET_COVER_PENDING") return Promise.resolve(cover);
     if (msg.type === "GET_NU_SAVED") return Promise.resolve(saved);
@@ -2144,11 +2327,21 @@ function makeDom() {
   const ctx = vm.createContext({
     chrome,
     document,
-    window: { get closed() { return closed; }, close() { closed = true; } },
+    window: {
+      get closed() {
+        return closed;
+      },
+      close() {
+        closed = true;
+      },
+    },
     fetch: async () => ({ ok: true, json: async () => ({ ok: true }) }),
     AbortSignal,
     console: silent,
-    setTimeout: (fn) => { fn(); return 0; },
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
     Promise,
   });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
@@ -2195,14 +2388,13 @@ function makeDom() {
   assert.equal(
     el("btnA").onclick,
     null,
-    "an append must destroy the element the handler was set on, like the real DOM does",
+    "an append must destroy the element the handler was set on, like the real DOM does"
   );
 
   el("cardB").innerHTML = `<div class="success">done</div>`;
   assert.equal(el("btnB"), null, "a rewritten card no longer holds what was inside it");
   console.log("\u2713 the test DOM fails the way a browser fails");
 }
-
 
 // ── 43. content.js: an ordinary page stays cheap ──────────────────────────────
 {
@@ -2243,13 +2435,9 @@ function makeDom() {
   }
 
   assert.equal(chrome.calls.messages.length, 0, "a page with no chapters must report nothing");
-  assert.ok(
-    scheduled <= 4,
-    `a page that never changes was looked at ${scheduled} times (the ceiling is ${6})`,
-  );
+  assert.ok(scheduled <= 4, `a page that never changes was looked at ${scheduled} times (the ceiling is ${6})`);
   console.log("\u2713 content.js gives up on a page that never changes");
 }
-
 
 // ── 44. background.js: a hand-made link is remembered against the address ─────
 {
@@ -2265,7 +2453,11 @@ function makeDom() {
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
 
   const cases = [
-    ["https://www.royalroad.com/fiction/21220/shadow-slave/chapter/301778/12-a-beginning", "Chapter 12", "/fiction/21220/shadow-slave"],
+    [
+      "https://www.royalroad.com/fiction/21220/shadow-slave/chapter/301778/12-a-beginning",
+      "Chapter 12",
+      "/fiction/21220/shadow-slave",
+    ],
     ["https://novelfire.net/novel/shadow-slave/chapter-12.html", "Chapter 12", "/novel/shadow-slave"],
     ["https://example.com/book/42/12", "Chapter 12", "/book/42"],
     ["https://example.com/reader?novel=shadow-slave&ch=12", "Chapter 12", "/reader?novel=shadow-slave"],
@@ -2312,19 +2504,15 @@ function makeDom() {
   assert.equal(
     storage["scope:example-reader.com:/novel/shadow-slave"],
     5,
-    "the address must be cached locally, or the next chapter asks again",
+    "the address must be cached locally, or the next chapter asks again"
   );
   assert.equal(calls.find((c) => c.url.endsWith("/progress"))?.body.chapter_raw, "Chapter 12");
   assert.equal(calls.find((c) => c.url.endsWith("/progress"))?.body.latest_chapter, 120, "and the count rides along");
-  assert.deepEqual(
-    [...storage["recent:example-reader.com"]],
-    [5],
-    "the site's shortlist starts with this novel",
-  );
+  assert.deepEqual([...storage["recent:example-reader.com"]], [5], "the site's shortlist starts with this novel");
   assert.equal(storage.pending_7, undefined, "the prompt goes once the page is linked");
   assert.ok(
     !Object.keys(storage).some((k) => k.startsWith("mapping:")),
-    "the title that failed must never become a key — it would claim every page that reads the same way",
+    "the title that failed must never become a key — it would claim every page that reads the same way"
   );
   assertAuthed(calls, "background.js (hand-made link)");
 
@@ -2374,11 +2562,10 @@ function makeDom() {
   assert.equal(
     calls.find((c) => c.url.endsWith("/metadata"))?.body.novel_id,
     5,
-    "and its author and chapter count go to that novel too",
+    "and its author and chapter count go to that novel too"
   );
   console.log("\u2713 background.js links a novel by hand, and only that novel's pages follow it");
 }
-
 
 // ── 45. popup.js: the novel is found by name when the page's title is furniture ─
 {
@@ -2400,7 +2587,10 @@ function makeDom() {
     fetch: fetchStub,
     AbortSignal,
     console: silent,
-    setTimeout: (fn) => { fn(); return 0; },
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
     Promise,
   });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
@@ -2439,19 +2629,21 @@ function makeDom() {
 
   const sent = chrome.calls.messages.find((m) => m.type === "LINK_PAGE");
   assert.ok(sent, "picking a novel must link the page to it");
-  assert.deepEqual({ ...sent.payload }, {
-    novelId: 5,
-    chapter: "Chapter 12",
-    url: detection.url,
-    domain: detection.domain,
-    tabId: 7,
-    latest: null,
-  });
+  assert.deepEqual(
+    { ...sent.payload },
+    {
+      novelId: 5,
+      chapter: "Chapter 12",
+      url: detection.url,
+      domain: detection.domain,
+      tabId: 7,
+      latest: null,
+    }
+  );
   assert.match(body.innerHTML, /Linked to Shadow Slave/, "and say what it linked");
   assert.match(body.innerHTML, /novel\/shadow-slave/, "and name the address it will remember");
   console.log("\u2713 popup.js finds a novel by name and links the page to it");
 }
-
 
 // ── 46. popup.js: a wrong link is correctable, and a nameless address says so ──
 {
@@ -2473,7 +2665,10 @@ function makeDom() {
     fetch: fetchStub,
     AbortSignal,
     console: silent,
-    setTimeout: (fn) => { fn(); return 0; },
+    setTimeout: (fn) => {
+      fn();
+      return 0;
+    },
     Promise,
   });
   vm.runInContext(read("popup.js"), ctx, { filename: "popup.js" });
@@ -2538,7 +2733,7 @@ function makeDom() {
   assert.match(
     body.innerHTML,
     /doesn't name one novel/,
-    "an address that names nothing must say so rather than link on a guess",
+    "an address that names nothing must say so rather than link on a guess"
   );
 
   // A novel deleted since the link was made: the page's own title is all that is left,
@@ -2548,6 +2743,5 @@ function makeDom() {
   assert.match(body.innerHTML, /Read Online/);
   console.log("\u2713 popup.js corrects a wrong link, and admits an address that names nothing");
 }
-
 
 console.log("\nAll extension self-checks passed.");

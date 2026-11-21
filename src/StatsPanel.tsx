@@ -257,7 +257,11 @@ function Heatmap({ activity }: { activity: Day[] }) {
           {week.map((day, j) => (
             <div
               key={j}
-              title={day ? `${day.date} — ${plural(day.chapters, "chapter")} read · ${day.entries} ${day.entries === 1 ? "entry" : "entries"}` : ""}
+              title={
+                day
+                  ? `${day.date} — ${plural(day.chapters, "chapter")} read · ${day.entries} ${day.entries === 1 ? "entry" : "entries"}`
+                  : ""
+              }
               style={{
                 width: 9,
                 height: 9,
@@ -279,7 +283,15 @@ function WeekBars({ weeks }: { weeks: Week[] }) {
     <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
       {weeks.map((week, i) => (
         <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-          <div style={{ fontSize: 10, color: week.chapters > 0 ? "#8a8a96" : "#8a8a96", fontVariantNumeric: "tabular-nums" }}>{week.chapters}</div>
+          <div
+            style={{
+              fontSize: 10,
+              color: week.chapters > 0 ? "#8a8a96" : "#8a8a96",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {week.chapters}
+          </div>
           <div
             title={`${plural(week.chapters, "chapter")} read`}
             style={{
@@ -314,7 +326,15 @@ function Histogram({ buckets, colour = "#a8555a" }: { buckets: Bucket[]; colour?
               }}
             />
           </div>
-          <span style={{ width: 24, fontSize: 11, color: bucket.count > 0 ? "#999" : "#8a8a96", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+          <span
+            style={{
+              width: 24,
+              fontSize: 11,
+              color: bucket.count > 0 ? "#999" : "#8a8a96",
+              textAlign: "right",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
             {bucket.count}
           </span>
         </div>
@@ -414,13 +434,7 @@ function SourceTable({ rows }: { rows: SourceStat[] }) {
 }
 
 // ── The panel ─────────────────────────────────────────────────────────────────
-export default function StatsPanel({
-  onExport,
-  onRestore,
-}: {
-  onExport: () => void;
-  onRestore: () => Promise<void>;
-}) {
+export default function StatsPanel({ onExport, onRestore }: { onExport: () => void; onRestore: () => Promise<void> }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmRestore, setConfirmRestore] = useState(false);
@@ -478,8 +492,8 @@ export default function StatsPanel({
           {confirmRestore ? (
             <>
               <span style={{ fontSize: 11, color: "#a8a06a", maxWidth: 280, lineHeight: 1.4 }}>
-                Replace the whole library with a backup file? A copy of the current
-                database is kept in the app's backups folder first.
+                Replace the whole library with a backup file? A copy of the current database is kept in the app's
+                backups folder first.
               </span>
               <BtnSecondary label="Cancel" onClick={() => setConfirmRestore(false)} />
               <BtnDanger label="Replace library" onClick={handleRestore} />
@@ -534,11 +548,7 @@ export default function StatsPanel({
           value={`${stats.current_streak} d`}
           sub={`Longest ${stats.longest_streak} d in the last year`}
         />
-        <StatCard
-          label="Backlog"
-          value={`${backlog}`}
-          sub="Planned + paused novels"
-        />
+        <StatCard label="Backlog" value={`${backlog}`} sub="Planned + paused novels" />
       </div>
 
       <Section title="Activity" hint="Chapters read each day, last 12 months">
@@ -574,9 +584,11 @@ export default function StatsPanel({
       {stats.backlog.buckets.some((b) => b.count > 0) && (
         <Section
           title="Backlog age"
-          hint={stats.backlog.oldest_title
-            ? `Oldest plan: ${stats.backlog.oldest_title} · waiting ${plural(stats.backlog.oldest_days, "day")}`
-            : "Planned novels by how long they have been waiting"}
+          hint={
+            stats.backlog.oldest_title
+              ? `Oldest plan: ${stats.backlog.oldest_title} · waiting ${plural(stats.backlog.oldest_days, "day")}`
+              : "Planned novels by how long they have been waiting"
+          }
         >
           <Histogram buckets={stats.backlog.buckets} colour="#a78bfa" />
         </Section>
@@ -622,7 +634,8 @@ export default function StatsPanel({
         >
           {coverage < 40 && (
             <div style={styles.notice}>
-              Improve tag coverage to unlock better tag insights — “Find on NU” and visiting the sites you read on both fill tags in.
+              Improve tag coverage to unlock better tag insights — “Find on NU” and visiting the sites you read on both
+              fill tags in.
             </div>
           )}
           <TagTable rows={stats.tag_stats} />

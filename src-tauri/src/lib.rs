@@ -1,9 +1,8 @@
-use tauri::{
-    Manager,
-    tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState},
-    WindowEvent,
-};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::{
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, WindowEvent,
+};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod backup;
@@ -21,7 +20,10 @@ fn save_export(path: String, content: String) -> Result<(), String> {
 /// Replaces the library with a JSON export. What is about to be replaced is
 /// snapshotted first, so restoring the wrong file is recoverable.
 #[tauri::command]
-fn import_library(path: String, db: tauri::State<'_, DbPath>) -> Result<backup::RestoreReport, String> {
+fn import_library(
+    path: String,
+    db: tauri::State<'_, DbPath>,
+) -> Result<backup::RestoreReport, String> {
     let json = std::fs::read_to_string(&path).map_err(|e| format!("couldn't read {path}: {e}"))?;
     backup::snapshot_before_restore(&db.0)?;
     backup::restore(&db.0, &json)
@@ -33,7 +35,10 @@ fn get_stats(path: tauri::State<'_, DbPath>) -> Result<stats::Stats, String> {
 }
 
 #[tauri::command]
-fn get_novel_history(id: i64, path: tauri::State<'_, DbPath>) -> Result<stats::NovelHistory, String> {
+fn get_novel_history(
+    id: i64,
+    path: tauri::State<'_, DbPath>,
+) -> Result<stats::NovelHistory, String> {
     stats::novel_history(&path.0, id)
 }
 
@@ -106,15 +111,24 @@ pub fn run() {
                 let _ = window.unminimize();
             }
         }))
-        .plugin(tauri_plugin_sql::Builder::default()
-            .add_migrations("sqlite:noveltrackr.db", migrations)
-            .build())
+        .plugin(
+            tauri_plugin_sql::Builder::default()
+                .add_migrations("sqlite:noveltrackr.db", migrations)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(DbPath(db_path))
-        .invoke_handler(tauri::generate_handler![save_export, get_stats, get_novel_history, import_library])
+        .invoke_handler(tauri::generate_handler![
+            save_export,
+            get_stats,
+            get_novel_history,
+            import_library
+        ])
         .setup(|app| {
-            let quit = MenuItemBuilder::new("Quit Noveltrackr").id("quit").build(app)?;
+            let quit = MenuItemBuilder::new("Quit Noveltrackr")
+                .id("quit")
+                .build(app)?;
             let show = MenuItemBuilder::new("Open").id("show").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&show, &quit]).build()?;
 
@@ -122,24 +136,23 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Noveltrackr")
                 .menu(&menu)
-                .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
-                        "quit" => app.exit(0),
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "quit" => app.exit(0),
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        _ => {}
                     }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } = event {
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {

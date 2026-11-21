@@ -3,14 +3,8 @@
   "name": "Noveltrackr",
   "version": "1.4.2",
   "description": "Track your novel reading progress",
-  "permissions": [
-    "storage"
-  ],
-  "host_permissions": [
-    "http://127.0.0.1:39172/*",
-    "https://*/*",
-    "http://*/*"
-  ],
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:39172/*", "https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"

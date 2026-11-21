@@ -51,59 +51,58 @@ interface Props {
   onDelete: (id: number) => Promise<void>;
 }
 // ── Delete Confirmation ───────────────────────────────────────────────────────
-function DeleteConfirm({
-  title,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
+function DeleteConfirm({ title, onConfirm, onCancel }: { title: string; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <div style={{
-      position: "absolute",
-      inset: 0,
-      background: "#13131a",
-      zIndex: 10,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 40,
-      gap: 20,
-    }}>
-      <div style={{
-        width: 48,
-        height: 48,
-        borderRadius: "50%",
-        background: "#f8717115",
-        border: "1px solid #f8717140",
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "#13131a",
+        zIndex: 10,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        fontSize: 22,
-      }}>
+        padding: 40,
+        gap: 20,
+      }}
+    >
+      <div
+        style={{
+          width: 48,
+          height: 48,
+          borderRadius: "50%",
+          background: "#f8717115",
+          border: "1px solid #f8717140",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 22,
+        }}
+      >
         ⚠
       </div>
       <div style={{ textAlign: "center" }}>
-        <div style={{
-          fontSize: 16,
-          fontWeight: 700,
-          fontStyle: "italic",
-          color: "#e8e6e1",
-          marginBottom: 8,
-        }}>
+        <div
+          style={{
+            fontSize: 16,
+            fontWeight: 700,
+            fontStyle: "italic",
+            color: "#e8e6e1",
+            marginBottom: 8,
+          }}
+        >
           Remove from library?
         </div>
-        <div style={{
-          fontSize: 13,
-          color: "#9a9a9a",
-          lineHeight: 1.5,
-          maxWidth: 280,
-        }}>
-          <span style={{ color: "#aaa" }}>{title}</span> and all its progress
-          and sources will be permanently deleted.
+        <div
+          style={{
+            fontSize: 13,
+            color: "#9a9a9a",
+            lineHeight: 1.5,
+            maxWidth: 280,
+          }}
+        >
+          <span style={{ color: "#aaa" }}>{title}</span> and all its progress and sources will be permanently deleted.
         </div>
       </div>
       <div style={{ display: "flex", gap: 10 }}>
@@ -226,7 +225,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
   }, [novel]);
 
   function set<K extends keyof EditNovelData>(key: K, value: EditNovelData[K]) {
-    setForm((prev) => prev ? { ...prev, [key]: value } : prev);
+    setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
     setDirty(true);
     if (key === "canonical_title") setErrors({});
   }
@@ -272,46 +271,44 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
     <PanelShell visible={visible} onClose={onClose} label="Edit novel" closeOnEscape={!dirty}>
       {/* Delete confirmation overlay — sits inside the panel */}
       {confirmDelete && form && (
-        <DeleteConfirm
-          title={form.canonical_title}
-          onConfirm={handleDelete}
-          onCancel={() => setConfirmDelete(false)}
-        />
+        <DeleteConfirm title={form.canonical_title} onConfirm={handleDelete} onCancel={() => setConfirmDelete(false)} />
       )}
 
-      <PanelHeader
-        eyebrow="Editing"
-        title={form?.canonical_title ?? ""}
-        onClose={onClose}
-      />
+      <PanelHeader eyebrow="Editing" title={form?.canonical_title ?? ""} onClose={onClose} />
 
       {/* Meta row — last updated */}
       {form && (
-        <div style={{
-          padding: "10px 24px",
-          borderBottom: "1px solid #1a1a22",
-          fontSize: 11,
-          color: "#8a8a96",
-          letterSpacing: "0.05em",
-          flexShrink: 0,
-        }}>
-          Last updated {new Date(form.updated_at).toLocaleDateString("en-AU", {
-            day: "numeric", month: "short", year: "numeric",
+        <div
+          style={{
+            padding: "10px 24px",
+            borderBottom: "1px solid #1a1a22",
+            fontSize: 11,
+            color: "#8a8a96",
+            letterSpacing: "0.05em",
+            flexShrink: 0,
+          }}
+        >
+          Last updated{" "}
+          {new Date(form.updated_at).toLocaleDateString("en-AU", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
           })}
         </div>
       )}
 
       {/* Form body */}
       {form && (
-        <div style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "24px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 22,
-        }}>
-
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 22,
+          }}
+        >
           {/* Title */}
           <div>
             <FieldLabel text="Title" required />
@@ -322,20 +319,14 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               autoFocus
             />
             {errors.title && (
-              <div style={{ fontSize: 11, color: "#f87171", marginTop: 5, paddingLeft: 2 }}>
-                {errors.title}
-              </div>
+              <div style={{ fontSize: 11, color: "#f87171", marginTop: 5, paddingLeft: 2 }}>{errors.title}</div>
             )}
           </div>
 
           {/* Author */}
           <div>
             <FieldLabel text="Author" />
-            <TextInput
-              value={form.author}
-              onChange={(v) => set("author", v)}
-              placeholder="e.g. Guiltythree"
-            />
+            <TextInput value={form.author} onChange={(v) => set("author", v)} placeholder="e.g. Guiltythree" />
             <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
               Filled in automatically when you visit the novel's page. Editing it here wins.
             </div>
@@ -402,12 +393,14 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
 
           {/* Tags */}
           <div>
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-            }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
               <FieldLabel text="Tags" />
               <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                 <MiniBtn
@@ -419,8 +412,9 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
                     // (never sent to NU) so the extension can run the site's own
                     // search for it.
                     const query = form.canonical_title.trim();
-                    openUrl(`https://www.novelupdates.com/#noveltrackr=${encodeURIComponent(query)}`)
-                      .catch((e: unknown) => console.error("could not open NovelUpdates:", e));
+                    openUrl(`https://www.novelupdates.com/#noveltrackr=${encodeURIComponent(query)}`).catch(
+                      (e: unknown) => console.error("could not open NovelUpdates:", e)
+                    );
                   }}
                 />
               </div>
@@ -430,9 +424,11 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               onChange={(v) => set("tags", v)}
               placeholder="e.g. LitRPG, Progression Fantasy"
               suggestions={vocabulary}
-              hint={vocabulary.length > 0
-                ? `Captured from the site you read on, or added here. ${vocabulary.length} tags known — start typing for suggestions.`
-                : "Captured from the site you read on, or added here. Visiting a NovelUpdates series page or using “Find on NU” teaches the app its tag names."}
+              hint={
+                vocabulary.length > 0
+                  ? `Captured from the site you read on, or added here. ${vocabulary.length} tags known — start typing for suggestions.`
+                  : "Captured from the site you read on, or added here. Visiting a NovelUpdates series page or using “Find on NU” teaches the app its tag names."
+              }
             />
           </div>
 
@@ -441,27 +437,25 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
             <FieldLabel text="Cover Image URL" />
 
             {form.cover_url && (
-              <div style={{
-                width: 80,
-                height: 120,
-                marginBottom: 10,
-                borderRadius: 6,
-                overflow: "hidden",
-                border: "1px solid #2a2a35",
-                background: "#1a1a22",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}>
+              <div
+                style={{
+                  width: 80,
+                  height: 120,
+                  marginBottom: 10,
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  border: "1px solid #2a2a35",
+                  background: "#1a1a22",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
                 <CoverImage url={form.cover_url} alt="Cover preview" />
               </div>
             )}
 
-            <TextInput
-              value={form.cover_url}
-              onChange={(v) => set("cover_url", v)}
-              placeholder="https://…"
-            />
+            <TextInput value={form.cover_url} onChange={(v) => set("cover_url", v)} placeholder="https://…" />
             <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
               Paste any image URL. Right-click a cover → Copy image address.
             </div>
@@ -470,11 +464,7 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
           {/* Source URL */}
           <div>
             <FieldLabel text="Source URL" />
-            <TextInput
-              value={form.last_seen_url}
-              onChange={(v) => set("last_seen_url", v)}
-              placeholder="https://…"
-            />
+            <TextInput value={form.last_seen_url} onChange={(v) => set("last_seen_url", v)} placeholder="https://…" />
             <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
               The website where you read this novel. Updated automatically by the extension.
             </div>
@@ -516,21 +506,16 @@ export default function EditNovelPanel({ novel, onClose, onSave, onDelete }: Pro
               >
                 {history.entries.map((entry, i) => (
                   <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12 }}>
-                    <span style={{ width: 74, color: "#9a9a9a", fontVariantNumeric: "tabular-nums" }}>
-                      {entry.at}
-                    </span>
+                    <span style={{ width: 74, color: "#9a9a9a", fontVariantNumeric: "tabular-nums" }}>{entry.at}</span>
                     <span style={{ flex: 1, color: "#9a9a9a" }}>{historyLine(entry)}</span>
                     {entry.gained > 0 && (
-                      <span style={{ color: "#60a5fa", fontVariantNumeric: "tabular-nums" }}>
-                        +{entry.gained}
-                      </span>
+                      <span style={{ color: "#60a5fa", fontVariantNumeric: "tabular-nums" }}>+{entry.gained}</span>
                     )}
                   </div>
                 ))}
               </div>
             </div>
           )}
-
         </div>
       )}
 

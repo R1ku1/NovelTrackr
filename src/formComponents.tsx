@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from "react";
 export type Status = "reading" | "paused" | "completed" | "dropped" | "planned";
 
 export const STATUS_OPTIONS: { value: Status; label: string; color: string }[] = [
-  { value: "reading",   label: "Reading",   color: "#60a5fa" },
-  { value: "planned",   label: "Planned",   color: "#a78bfa" },
+  { value: "reading", label: "Reading", color: "#60a5fa" },
+  { value: "planned", label: "Planned", color: "#a78bfa" },
   // Amber, matching STATUS_META in App.tsx: gold is the five-star foil on a cover, so
   // the paused badge keeps clear of it
-  { value: "paused",    label: "Paused",    color: "#fb923c" },
+  { value: "paused", label: "Paused", color: "#fb923c" },
   { value: "completed", label: "Completed", color: "#4ade80" },
-  { value: "dropped",   label: "Dropped",   color: "#f87171" },
+  { value: "dropped", label: "Dropped", color: "#f87171" },
 ];
 
 export const FONT = "'Georgia', 'Times New Roman', serif";
@@ -23,14 +23,16 @@ export const DEFAULT_STATUS: Status = "planned";
 // ── Field Label ───────────────────────────────────────────────────────────────
 export function FieldLabel({ text, required }: { text: string; required?: boolean }) {
   return (
-    <div style={{
-      fontSize: 9,
-      letterSpacing: "0.16em",
-      textTransform: "uppercase",
-      color: "#9a9a9a",
-      marginBottom: 6,
-      paddingLeft: 1,
-    }}>
+    <div
+      style={{
+        fontSize: 9,
+        letterSpacing: "0.16em",
+        textTransform: "uppercase",
+        color: "#9a9a9a",
+        marginBottom: 6,
+        paddingLeft: 1,
+      }}
+    >
       {text}
       {required && <span style={{ color: "#f87171", marginLeft: 3 }}>*</span>}
     </div>
@@ -78,16 +80,7 @@ export function CoverImage({
   // Lazy and async: the library renders one cover per row, and only the ones on screen
   // need fetching — the rest are requested as they scroll into view, and the webview's
   // own cache answers them on the next visit
-  return (
-    <img
-      src={url}
-      alt={alt}
-      style={coverImg}
-      loading="lazy"
-      decoding="async"
-      onError={() => setBroken(true)}
-    />
-  );
+  return <img src={url} alt={alt} style={coverImg} loading="lazy" decoding="async" onError={() => setBroken(true)} />;
 }
 
 // ── Text Input ────────────────────────────────────────────────────────────────
@@ -169,13 +162,7 @@ export function TextArea({
 }
 
 // ── Status Picker ─────────────────────────────────────────────────────────────
-export function StatusPicker({
-  value,
-  onChange,
-}: {
-  value: Status;
-  onChange: (v: Status) => void;
-}) {
+export function StatusPicker({ value, onChange }: { value: Status; onChange: (v: Status) => void }) {
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       {STATUS_OPTIONS.map((opt) => {
@@ -208,13 +195,7 @@ export function StatusPicker({
 // ── Rating Picker ─────────────────────────────────────────────────────────────
 export const RATING_MAX = 5;
 
-export function RatingPicker({
-  value,
-  onChange,
-}: {
-  value: number | null;
-  onChange: (v: number | null) => void;
-}) {
+export function RatingPicker({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
   return (
     <div role="radiogroup" aria-label="Rating" style={{ display: "flex", alignItems: "center", gap: 4 }}>
       {Array.from({ length: RATING_MAX }, (_, i) => i + 1).map((star) => {
@@ -262,19 +243,9 @@ export const DROP_REASONS = [
   "Dropped by the author",
 ];
 
-export function ReasonPicker({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
+export function ReasonPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <div
-      role="radiogroup"
-      aria-label="Reason for dropping"
-      style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
-    >
+    <div role="radiogroup" aria-label="Reason for dropping" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
       {DROP_REASONS.map((reason) => {
         const active = value === reason;
         return (
@@ -325,7 +296,10 @@ export function ChipInput({
 
   function addValue() {
     const trimmed = draft.trim();
-    if (!trimmed || values.includes(trimmed)) { setDraft(""); return; }
+    if (!trimmed || values.includes(trimmed)) {
+      setDraft("");
+      return;
+    }
     onChange([...values, trimmed]);
     setDraft("");
   }
@@ -336,11 +310,10 @@ export function ChipInput({
 
   // Known values that match what's being typed (tag vocabulary, plan §4.2.2)
   const query = draft.trim().toLowerCase();
-  const matches = suggestions && query
-    ? suggestions
-        .filter((s) => s.toLowerCase().includes(query) && !values.includes(s))
-        .slice(0, 6)
-    : [];
+  const matches =
+    suggestions && query
+      ? suggestions.filter((s) => s.toLowerCase().includes(query) && !values.includes(s)).slice(0, 6)
+      : [];
 
   return (
     <div>
@@ -390,8 +363,14 @@ export function ChipInput({
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
           onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); addValue(); }
-            if (e.key === ",")     { e.preventDefault(); addValue(); }
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addValue();
+            }
+            if (e.key === ",") {
+              e.preventDefault();
+              addValue();
+            }
           }}
           style={{
             flex: 1,
@@ -427,7 +406,10 @@ export function ChipInput({
           {matches.map((s) => (
             <button
               key={s}
-              onClick={() => { onChange([...values, s]); setDraft(""); }}
+              onClick={() => {
+                onChange([...values, s]);
+                setDraft("");
+              }}
               style={{
                 background: "#14141a",
                 border: "1px solid #2a2a35",
@@ -444,9 +426,7 @@ export function ChipInput({
           ))}
         </div>
       )}
-      <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>
-        {hint}
-      </div>
+      <div style={{ fontSize: 10, color: "#8a8a96", marginTop: 5, paddingLeft: 1 }}>{hint}</div>
     </div>
   );
 }
@@ -531,34 +511,40 @@ export function PanelHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div style={{
-      padding: "20px 24px 18px",
-      borderBottom: "1px solid #1e1e28",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      flexShrink: 0,
-    }}>
+    <div
+      style={{
+        padding: "20px 24px 18px",
+        borderBottom: "1px solid #1e1e28",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexShrink: 0,
+      }}
+    >
       <div>
-        <div style={{
-          fontSize: 9,
-          letterSpacing: "0.18em",
-          textTransform: "uppercase",
-          color: "#9a9a9a",
-          marginBottom: 4,
-        }}>
+        <div
+          style={{
+            fontSize: 9,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: "#9a9a9a",
+            marginBottom: 4,
+          }}
+        >
           {eyebrow}
         </div>
-        <h2 style={{
-          fontSize: 17,
-          fontWeight: 700,
-          fontStyle: "italic",
-          color: "#e8e6e1",
-          maxWidth: 280,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}>
+        <h2
+          style={{
+            fontSize: 17,
+            fontWeight: 700,
+            fontStyle: "italic",
+            color: "#e8e6e1",
+            maxWidth: 280,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {title}
         </h2>
       </div>
@@ -592,15 +578,17 @@ export function PanelHeader({
 // ── Panel Footer ──────────────────────────────────────────────────────────────
 export function PanelFooter({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{
-      padding: "16px 24px",
-      borderTop: "1px solid #1e1e28",
-      display: "flex",
-      gap: 10,
-      justifyContent: "flex-end",
-      flexShrink: 0,
-      background: "#13131a",
-    }}>
+    <div
+      style={{
+        padding: "16px 24px",
+        borderTop: "1px solid #1e1e28",
+        display: "flex",
+        gap: 10,
+        justifyContent: "flex-end",
+        flexShrink: 0,
+        background: "#13131a",
+      }}
+    >
       {children}
     </div>
   );
@@ -683,4 +671,3 @@ export function BtnDanger({ label, onClick }: { label: string; onClick: () => vo
     </button>
   );
 }
-
