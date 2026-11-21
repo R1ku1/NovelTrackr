@@ -7,6 +7,7 @@ import { exportToFile, importFromFile } from "./queries";
 import { CoverImage } from "./formComponents";
 import { isStale, latestSuffix, latestSummary, progressPercent, seenDate, unreadChapters } from "./latest";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { checkForUpdate, installUpdate, type UpdateInfo } from "./updates";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Status = "reading" | "paused" | "completed" | "dropped" | "planned";
@@ -273,7 +274,75 @@ const styles: Record<string, React.CSSProperties> = {
   headerRight: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
+  },
+  updateCheck: {
+    background: "none",
+    border: "none",
+    color: "#9a9a9a",
+    fontFamily: "inherit",
+    fontSize: 11,
+    letterSpacing: "0.04em",
+    padding: 0,
+    cursor: "pointer",
+  },
+  updateBanner: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    padding: "12px 28px",
+    background: "#1a1a22",
+    borderBottom: "1px solid #2a2a35",
+    flexShrink: 0,
+    flexWrap: "wrap",
+  },
+  updateCopy: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    minWidth: 240,
+  },
+  updateTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+  },
+  updateNotes: {
+    fontSize: 12,
+    color: "#9a9a9a",
+    lineHeight: 1.4,
+  },
+  updateError: {
+    fontSize: 12,
+    color: "#f87171",
+    lineHeight: 1.4,
+  },
+  updateActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+  },
+  updatePrimary: {
+    background: "#60a5fa",
+    color: "#0f0f13",
+    border: "none",
+    borderRadius: 20,
+    padding: "8px 16px",
+    fontFamily: "inherit",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  updateSecondary: {
+    background: "transparent",
+    color: "#9a9a9a",
+    border: "1px solid #2a2a35",
+    borderRadius: 20,
+    padding: "8px 14px",
+    fontFamily: "inherit",
+    fontSize: 12,
+    cursor: "pointer",
   },
   nav: {
     display: "flex",
@@ -1038,6 +1107,9 @@ export default function App() {
   const [editTarget, setEditTarget] = useState<EditNovelData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updateState, setUpdateState] = useState<"idle" | "checking" | "downloading" | "opening">("idle");
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   // The filters offer only what the library actually holds: tags by how many
   // novels carry them, authors alphabetically. Both are a walk over every novel, so
@@ -1115,6 +1187,14 @@ export default function App() {
         setLoadError(e instanceof Error ? e.message : String(e));
       });
 
+    // A failed check is not something the reader needs to see on launch; the
+    // header button retries it on demand.
+    checkForUpdate()
+      .then((info) => {
+        if (info) setUpdate(info);
+      })
+      .catch((e: unknown) => console.error("update check failed:", e));
+
     // Poll for updates from extension every 5 seconds
     const interval = setInterval(async () => {
       // Only poll when window is visible
@@ -1135,6 +1215,42 @@ export default function App() {
   function notify(text: string, error = false) {
     setNotice({ text, error });
     window.setTimeout(() => setNotice((n) => (n?.text === text ? null : n)), 5000);
+  }
+
+  async function handleCheckForUpdates() {
+    setUpdateState("checking");
+    setUpdateError(null);
+    try {
+      const info = await checkForUpdate();
+      if (info) {
+        setUpdate(info);
+        notify(`Update ${info.version} is available`);
+      } else {
+        notify("You're up to date");
+      }
+    } catch (e) {
+      console.error("update check failed:", e);
+      notify("Couldn't check for updates — see the console for details", true);
+    } finally {
+      setUpdateState("idle");
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (!update || updateState === "downloading" || updateState === "opening") return;
+
+    setUpdateState("downloading");
+    setUpdateError(null);
+    try {
+      await installUpdate(update);
+      setUpdateState("opening");
+      notify(`Update ${update.version} verified — opening the installer`);
+    } catch (e) {
+      console.error("update failed:", e);
+      setUpdateState("idle");
+      setUpdateError(e instanceof Error ? e.message : String(e));
+      notify("Update failed — nothing was run", true);
+    }
   }
 
   // Export lives on the stats page — its outcome still reports through the header
@@ -1193,6 +1309,13 @@ export default function App() {
           <NavButton label="Stats" active={page === "stats"} onClick={() => setPage("stats")} />
         </nav>
         <div style={styles.headerRight}>
+          <button
+            style={{ ...styles.updateCheck, opacity: updateState === "idle" ? 1 : 0.6 }}
+            onClick={handleCheckForUpdates}
+            disabled={updateState !== "idle"}
+          >
+            {updateState === "checking" ? "Checking…" : "Check for updates"}
+          </button>
           {notice && (
             <span
               role="status"
@@ -1204,6 +1327,42 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {update && (
+        <div style={styles.updateBanner} role="status" aria-live="polite">
+          <div style={styles.updateCopy}>
+            <span style={styles.updateTitle}>Update {update.version} is available</span>
+            {update.notes && <span style={styles.updateNotes}>{update.notes}</span>}
+            {updateState === "opening" && (
+              <span style={styles.updateNotes}>Installer open — close the app if it asks.</span>
+            )}
+            {updateError && <span style={styles.updateError}>{updateError}</span>}
+          </div>
+          <div style={styles.updateActions}>
+            <button
+              style={styles.updatePrimary}
+              onClick={handleInstallUpdate}
+              disabled={updateState === "downloading" || updateState === "opening"}
+            >
+              {updateState === "downloading"
+                ? "Downloading and verifying…"
+                : updateState === "opening"
+                  ? "Installer open"
+                  : "Install update"}
+            </button>
+            <button
+              style={styles.updateSecondary}
+              onClick={() => {
+                setUpdate(null);
+                setUpdateError(null);
+              }}
+              disabled={updateState === "downloading" || updateState === "opening"}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* The panels sit outside the header — a dialog has no business inside a banner */}
       <AddNovelPanel

@@ -17,6 +17,7 @@ const add = read("AddNovelPanel.tsx");
 const edit = read("EditNovelPanel.tsx");
 const css = read("App.css");
 const latest = read("latest.ts");
+const updates = read("updates.ts");
 const content = read("../extension/content.js");
 const background = read("../extension/background.js");
 const popup = read("../extension/popup.js");
@@ -185,6 +186,13 @@ check("clickable rows and cards have a keyboard path", () => {
 check("the notice is a live region", () => {
   assert.match(app, /role="status"/);
   assert.match(app, /aria-live="polite"/);
+});
+
+check("the update banner is a live region and installs through the backend", () => {
+  assert.match(app, /Check for updates/);
+  assert.match(app, /styles\.updateBanner/);
+  assert.match(app, /handleInstallUpdate/);
+  assert.match(updates, /invoke\("download_update"/);
 });
 
 // ── Covers ────────────────────────────────────────────────────────────────────
