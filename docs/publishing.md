@@ -50,7 +50,7 @@ Packages, authenticates, checks that the version is newer than both the publishe
 .\scripts\publish.ps1
 ```
 
-Does the same, then asks you to type `publish`. Anything else cancels and leaves the uploaded revision unpublished.
+Does the same, then asks you to type `publish`. Anything else cancels and leaves the uploaded revision unpublished. `-Yes` skips the prompt; only use it after explicitly deciding to publish.
 
 ## What the script validates
 
@@ -66,7 +66,7 @@ Does the same, then asks you to type `publish`. Anything else cancels and leaves
 
 The script never changes the version. Bump `version` in `extension/manifest.json` before publishing; the Web Store rejects a version that is already published or submitted.
 
-At the time of writing, **1.4.1 is published** and **1.4.2 is pending review**. Until 1.4.2 clears review, the script will refuse to upload 1.4.2 again — bump to 1.4.3 for the next submission.
+Run `.\scripts\publish.ps1 -StatusOnly` for the current published and submitted versions. The script refuses to upload or publish a version that is not newer than both.
 
 ## What the API can and cannot do
 
