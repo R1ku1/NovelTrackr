@@ -27,3 +27,7 @@ dist-ssr
 *-setup.exe
 graphify-out/
 plan.txt
+
+# Chrome Web Store local credentials and config
+scripts/chrome-webstore.local.json
+chrome-webstore-key*.json

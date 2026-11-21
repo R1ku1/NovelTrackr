@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "extension:zip": "node scripts/publish-extension.mjs --zip",
+    "extension:status": "node scripts/publish-extension.mjs --status",
+    "extension:upload": "node scripts/publish-extension.mjs --upload",
+    "extension:publish": "node scripts/publish-extension.mjs --publish"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
