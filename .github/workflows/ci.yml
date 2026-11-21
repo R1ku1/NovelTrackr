@@ -100,12 +100,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm audit --audit-level=high
-      - uses: rustsec/audit-check@v2
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: src-tauri
-          # RUSTSEC-2026-0459: tauri-plugin-sql pins sqlx 0.8, which cannot use
-          # libsqlite3-sys 0.39. The app only opens its own local database.
-          # RUSTSEC-2023-0071: rsa comes from optional sqlx-mysql, which is not
-          # compiled (only the sqlite feature is enabled).
-          ignore: RUSTSEC-2026-0459,RUSTSEC-2023-0071
+          tool: cargo-audit
+      - name: Audit Rust dependencies
+        working-directory: src-tauri
+        # RUSTSEC-2026-0459: tauri-plugin-sql pins sqlx 0.8, which cannot use
+        # libsqlite3-sys 0.39. The app only opens its own local database.
+        # RUSTSEC-2023-0071: rsa comes from optional sqlx-mysql, which is not
+        # compiled (only the sqlite feature is enabled).
+        run: cargo audit --ignore RUSTSEC-2026-0459 --ignore RUSTSEC-2023-0071
